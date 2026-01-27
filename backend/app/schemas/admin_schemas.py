@@ -12,6 +12,10 @@ class AdminUserCreate(BaseModel):
     password: str
     telegram_chat_id: Optional[str] = None
     is_admin: bool = False
+    max_disk_gb: Optional[int] = None
+    max_ram_mb: Optional[int] = None
+    max_vms: Optional[int] = None
+    max_cpu_cores: Optional[int] = None
 
     @field_validator('password')
     @classmethod
@@ -35,6 +39,10 @@ class AdminUserResponse(BaseModel):
     telegram_chat_id: Optional[str]
     created_at: datetime
     vm_count: int
+    max_disk_gb: Optional[int]
+    max_ram_mb: Optional[int]
+    max_vms: Optional[int]
+    max_cpu_cores: Optional[int]
 
     class Config:
         from_attributes = True
@@ -43,6 +51,10 @@ class AdminUserResponse(BaseModel):
 class AdminUserUpdate(BaseModel):
     is_admin: Optional[bool] = None
     telegram_chat_id: Optional[str] = None
+    max_disk_gb: Optional[int] = None
+    max_ram_mb: Optional[int] = None
+    max_vms: Optional[int] = None
+    max_cpu_cores: Optional[int] = None
 
 
 class AdminVMResponse(VMResponse):

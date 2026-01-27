@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -14,13 +14,27 @@ import {
   TextField,
   Typography,
   Slider,
+  Stack,
+  Chip,
 } from '@mui/material';
 import apiClient from '../services/api-client';
+
+interface Quota {
+  max_vms: number | null;
+  used_vms: number;
+  max_disk_gb: number | null;
+  used_disk_gb: number;
+  max_ram_mb: number | null;
+  used_ram_mb: number;
+  max_cpu_cores: number | null;
+  used_cpu_cores: number;
+}
 
 export default function VMCreatePage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [quota, setQuota] = useState<Quota | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -29,6 +43,28 @@ export default function VMCreatePage() {
     disk_gb: 50,
     os_type: 'ubuntu-24.04',
   });
+
+  useEffect(() => {
+    fetchQuota();
+  }, []);
+
+  const fetchQuota = async () => {
+    try {
+      const response = await apiClient.get('/auth/quota');
+      setQuota(response.data);
+    } catch (error) {
+      console.error('Error fetching quota:', error);
+    }
+  };
+
+  const applyPreset = (preset: 'small' | 'medium' | 'large') => {
+    const presets = {
+      small: { cores: 1, ram_gb: 1, disk_gb: 20 },
+      medium: { cores: 2, ram_gb: 4, disk_gb: 50 },
+      large: { cores: 4, ram_gb: 8, disk_gb: 100 },
+    };
+    setFormData({ ...formData, ...presets[preset] });
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -60,8 +96,47 @@ export default function VMCreatePage() {
         Tạo Máy Ảo Mới
       </Typography>
 
+      {quota && (
+        <Card sx={{ maxWidth: 600, mt: 2, mb: 2 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Giới hạn tài nguyên</Typography>
+            <Stack direction="row" spacing={2} sx={{ flexWrap: 'wrap', gap: 1 }}>
+              <Chip
+                label={`VM: ${quota.used_vms}${quota.max_vms !== null ? `/${quota.max_vms}` : ' (Không giới hạn)'}`}
+                color={quota.max_vms !== null && quota.used_vms >= quota.max_vms ? 'error' : 'default'}
+              />
+              <Chip
+                label={`Disk: ${quota.used_disk_gb}${quota.max_disk_gb !== null ? `/${quota.max_disk_gb}` : ''} GB${quota.max_disk_gb === null ? ' (Không giới hạn)' : ''}`}
+                color={quota.max_disk_gb !== null && quota.used_disk_gb >= quota.max_disk_gb ? 'error' : 'default'}
+              />
+              <Chip
+                label={`RAM: ${Math.round(quota.used_ram_mb / 1024)}${quota.max_ram_mb !== null ? `/${Math.round(quota.max_ram_mb / 1024)}` : ''} GB${quota.max_ram_mb === null ? ' (Không giới hạn)' : ''}`}
+                color={quota.max_ram_mb !== null && quota.used_ram_mb >= quota.max_ram_mb ? 'error' : 'default'}
+              />
+              <Chip
+                label={`CPU: ${quota.used_cpu_cores}${quota.max_cpu_cores !== null ? `/${quota.max_cpu_cores}` : ''} cores${quota.max_cpu_cores === null ? ' (Không giới hạn)' : ''}`}
+                color={quota.max_cpu_cores !== null && quota.used_cpu_cores >= quota.max_cpu_cores ? 'error' : 'default'}
+              />
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
+
       <Card sx={{ maxWidth: 600, mt: 3 }}>
         <CardContent>
+          <Typography variant="h6" gutterBottom>Cấu hình mẫu</Typography>
+          <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
+            <Button variant="outlined" onClick={() => applyPreset('small')}>
+              Nhỏ (1 CPU, 1GB RAM, 20GB)
+            </Button>
+            <Button variant="outlined" onClick={() => applyPreset('medium')}>
+              Trung bình (2 CPU, 4GB RAM, 50GB)
+            </Button>
+            <Button variant="outlined" onClick={() => applyPreset('large')}>
+              Lớn (4 CPU, 8GB RAM, 100GB)
+            </Button>
+          </Stack>
+
           <Box component="form" onSubmit={handleSubmit} noValidate>
             <TextField
               margin="normal"

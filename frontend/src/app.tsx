@@ -1,6 +1,9 @@
+import { createContext, useContext, useState, useMemo, ReactNode } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+
+type PaletteMode = 'light' | 'dark';
 import { AuthProvider } from './hooks/use-auth-context';
 import ProtectedRoute from './components/protected-route-wrapper';
 import AdminRoute from './components/admin-route-wrapper';
@@ -15,47 +18,96 @@ import AdminVmOverviewPage from './pages/admin-vm-overview-page';
 import AdminAuditLogPage from './pages/admin-audit-log-page';
 import UserProfileSettingsPage from './pages/user-profile-settings-page';
 
-const theme = createTheme({
-  palette: {
-    primary: {
-      main: '#1976D2',
-    },
-    secondary: {
-      main: '#424242',
-    },
-    success: {
-      main: '#2E7D32',
-    },
-    warning: {
-      main: '#ED6C02',
-    },
-    error: {
-      main: '#D32F2F',
-    },
-    background: {
-      default: '#F5F5F5',
-      paper: '#FFFFFF',
-    },
-  },
-  typography: {
-    fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-    h6: {
-      fontWeight: 600,
-    },
-    h4: {
-      fontWeight: 600,
-    },
-  },
-  shape: {
-    borderRadius: 8,
-  },
+interface ThemeContextType {
+  mode: PaletteMode;
+  toggleTheme: () => void;
+}
+
+const ThemeContext = createContext<ThemeContextType>({
+  mode: 'light',
+  toggleTheme: () => {},
 });
+
+export const useThemeContext = () => useContext(ThemeContext);
+
+function ThemeContextProvider({ children }: { children: ReactNode }) {
+  const [mode, setMode] = useState<PaletteMode>(() => {
+    const saved = localStorage.getItem('theme-mode');
+    return (saved as PaletteMode) || 'light';
+  });
+
+  const toggleTheme = () => {
+    setMode((prevMode: PaletteMode) => {
+      const newMode: PaletteMode = prevMode === 'light' ? 'dark' : 'light';
+      localStorage.setItem('theme-mode', newMode);
+      return newMode;
+    });
+  };
+
+  const theme = useMemo(
+    () =>
+      createTheme({
+        palette: {
+          mode,
+          primary: {
+            main: '#1976D2',
+          },
+          secondary: {
+            main: '#424242',
+          },
+          success: {
+            main: '#2E7D32',
+          },
+          warning: {
+            main: '#ED6C02',
+          },
+          error: {
+            main: '#D32F2F',
+          },
+          ...(mode === 'light'
+            ? {
+                background: {
+                  default: '#F5F5F5',
+                  paper: '#FFFFFF',
+                },
+              }
+            : {
+                background: {
+                  default: '#121212',
+                  paper: '#1E1E1E',
+                },
+              }),
+        },
+        typography: {
+          fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+          h6: {
+            fontWeight: 600,
+          },
+          h4: {
+            fontWeight: 600,
+          },
+        },
+        shape: {
+          borderRadius: 8,
+        },
+      }),
+    [mode]
+  );
+
+  return (
+    <ThemeContext.Provider value={{ mode, toggleTheme }}>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        {children}
+      </ThemeProvider>
+    </ThemeContext.Provider>
+  );
+}
 
 export default function App() {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <BrowserRouter>
+    <BrowserRouter>
+      <ThemeContextProvider>
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
@@ -76,7 +128,7 @@ export default function App() {
             </Route>
           </Routes>
         </AuthProvider>
-      </BrowserRouter>
-    </ThemeProvider>
+      </ThemeContextProvider>
+    </BrowserRouter>
   );
 }

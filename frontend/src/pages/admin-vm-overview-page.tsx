@@ -27,11 +27,13 @@ import {
   Select,
   FormControl,
   InputLabel,
+  TablePagination,
 } from '@mui/material';
 import {
   PlayArrow as PlayArrowIcon,
   Stop as StopIcon,
   Delete as DeleteIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
 import apiClient from '../services/api-client';
 import VMStatusChip from '../components/vm-status-chip';
@@ -68,6 +70,8 @@ export default function AdminVmOverviewPage() {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const vmsRef = useRef<AdminVM[]>([]);
 
   const fetchData = async () => {
@@ -95,6 +99,43 @@ export default function AdminVmOverviewPage() {
     const matchesStatus = statusFilter === 'all' || vm.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  const paginatedVMs = filteredVMs.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+
+  const handleChangePage = (_event: unknown, newPage: number) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const handleExportCSV = () => {
+    const headers = ['VMID', 'Tên VM', 'Người dùng', 'Trạng thái', 'CPU', 'RAM (GB)', 'Disk (GB)', 'IP', 'Ngày tạo'];
+    const csvData = filteredVMs.map(vm => [
+      vm.vmid,
+      vm.name,
+      vm.username,
+      vm.status,
+      `${vm.cores} cores`,
+      Math.round(vm.memory_mb / 1024),
+      vm.disk_gb,
+      vm.ip_address || '-',
+      new Date(vm.created_at).toLocaleDateString('vi-VN'),
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...csvData.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `vms_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+  };
 
   useEffect(() => {
     fetchData();
@@ -148,9 +189,18 @@ export default function AdminVmOverviewPage() {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>
-        Tất Cả Máy Ảo
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h4">
+          Tất Cả Máy Ảo
+        </Typography>
+        <Button
+          variant="outlined"
+          startIcon={<DownloadIcon />}
+          onClick={handleExportCSV}
+        >
+          Xuất CSV
+        </Button>
+      </Box>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -242,7 +292,7 @@ export default function AdminVmOverviewPage() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredVMs.map((vm) => (
+            {paginatedVMs.map((vm) => (
               <TableRow key={vm.id} hover>
                 <TableCell>{vm.vmid}</TableCell>
                 <TableCell>{vm.name}</TableCell>
@@ -317,6 +367,16 @@ export default function AdminVmOverviewPage() {
             )}
           </TableBody>
         </Table>
+        <TablePagination
+          component="div"
+          count={filteredVMs.length}
+          page={page}
+          onPageChange={handleChangePage}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+          labelRowsPerPage="Số hàng mỗi trang:"
+          labelDisplayedRows={({ from, to, count }) => `${from}-${to} của ${count}`}
+        />
       </TableContainer>
 
       <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, vmId: null, vmName: '' })}>

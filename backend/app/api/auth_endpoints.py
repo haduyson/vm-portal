@@ -4,7 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import hash_password, verify_password, create_access_token, get_current_user
 from app.database import get_session
 from app.models.user_model import User
+from app.models.virtual_machine_model import VirtualMachine
 from app.schemas.user_schemas import UserCreate, UserLogin, UserResponse, Token, ProfileUpdate
+from pydantic import BaseModel
+from typing import Optional
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -107,3 +110,42 @@ async def update_profile(
     await session.commit()
     await session.refresh(current_user)
     return current_user
+
+
+class QuotaResponse(BaseModel):
+    max_vms: Optional[int]
+    used_vms: int
+    max_disk_gb: Optional[int]
+    used_disk_gb: int
+    max_ram_mb: Optional[int]
+    used_ram_mb: int
+    max_cpu_cores: Optional[int]
+    used_cpu_cores: int
+
+
+@router.get("/quota", response_model=QuotaResponse)
+async def get_quota(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get user quota limits and current usage."""
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.user_id == current_user.id)
+    )
+    user_vms = result.scalars().all()
+
+    used_vms = len(user_vms)
+    used_disk_gb = sum(vm.disk_gb for vm in user_vms)
+    used_ram_mb = sum(vm.memory_mb for vm in user_vms)
+    used_cpu_cores = sum(vm.cores for vm in user_vms)
+
+    return QuotaResponse(
+        max_vms=current_user.max_vms,
+        used_vms=used_vms,
+        max_disk_gb=current_user.max_disk_gb,
+        used_disk_gb=used_disk_gb,
+        max_ram_mb=current_user.max_ram_mb,
+        used_ram_mb=used_ram_mb,
+        max_cpu_cores=current_user.max_cpu_cores,
+        used_cpu_cores=used_cpu_cores,
+    )

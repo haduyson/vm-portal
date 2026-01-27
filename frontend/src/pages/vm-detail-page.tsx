@@ -15,6 +15,11 @@ import {
   InputAdornment,
   TextField,
   LinearProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material';
 import {
   PlayArrow as PlayArrowIcon,
@@ -23,6 +28,7 @@ import {
   ArrowBack as ArrowBackIcon,
   Visibility,
   VisibilityOff,
+  Delete as DeleteIcon,
 } from '@mui/icons-material';
 import apiClient from '../services/api-client';
 import VMStatusChip from '../components/vm-status-chip';
@@ -63,6 +69,7 @@ export default function VMDetailPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [resources, setResources] = useState<VMResources | null>(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [deleteDialog, setDeleteDialog] = useState(false);
   const vmRef = useRef<VMDetail | null>(null);
 
   const fetchVMDetail = async () => {
@@ -127,6 +134,18 @@ export default function VMDetailPage() {
     } catch (error: any) {
       setSnackbar({ open: true, message: error.response?.data?.detail || 'Có lỗi xảy ra', severity: 'error' });
     } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteVM = async () => {
+    setActionLoading(true);
+    try {
+      await apiClient.delete(`/vms/${id}`);
+      setSnackbar({ open: true, message: 'VM đã được xóa thành công', severity: 'success' });
+      setTimeout(() => navigate('/vms'), 1500);
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.detail || 'Có lỗi xảy ra', severity: 'error' });
       setActionLoading(false);
     }
   };
@@ -340,10 +359,32 @@ export default function VMDetailPage() {
               >
                 Khởi động lại
               </Button>
+              <Button
+                variant="contained"
+                color="error"
+                startIcon={<DeleteIcon />}
+                disabled={actionLoading}
+                onClick={() => setDeleteDialog(true)}
+              >
+                Xóa VM
+              </Button>
             </Box>
           </Paper>
         </Grid>
       </Grid>
+
+      <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)}>
+        <DialogTitle>Xác nhận xóa VM</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Bạn có chắc chắn muốn xóa VM "{vm.name}"? Hành động này không thể hoàn tác.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialog(false)}>Hủy</Button>
+          <Button onClick={handleDeleteVM} color="error" variant="contained">Xóa</Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={snackbar.open}

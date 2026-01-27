@@ -23,6 +23,50 @@ async def create_vm(
 ):
     """Create a new virtual machine."""
     try:
+        # Check user quotas
+        result = await session.execute(
+            select(VirtualMachine).where(VirtualMachine.user_id == current_user.id)
+        )
+        user_vms = result.scalars().all()
+
+        # Count current usage
+        current_vm_count = len(user_vms)
+        current_disk_gb = sum(vm.disk_gb for vm in user_vms)
+        current_ram_mb = sum(vm.memory_mb for vm in user_vms)
+        current_cpu_cores = sum(vm.cores for vm in user_vms)
+
+        # Check VM count quota
+        if current_user.max_vms is not None:
+            if current_vm_count >= current_user.max_vms:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Đã vượt giới hạn số VM tối đa ({current_vm_count}/{current_user.max_vms})",
+                )
+
+        # Check disk quota
+        if current_user.max_disk_gb is not None:
+            if current_disk_gb + vm_data.disk_gb > current_user.max_disk_gb:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Đã vượt giới hạn dung lượng ổ cứng ({current_disk_gb + vm_data.disk_gb}/{current_user.max_disk_gb} GB)",
+                )
+
+        # Check RAM quota
+        if current_user.max_ram_mb is not None:
+            if current_ram_mb + vm_data.memory_mb > current_user.max_ram_mb:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Đã vượt giới hạn RAM ({(current_ram_mb + vm_data.memory_mb) // 1024}/{current_user.max_ram_mb // 1024} GB)",
+                )
+
+        # Check CPU cores quota
+        if current_user.max_cpu_cores is not None:
+            if current_cpu_cores + vm_data.cores > current_user.max_cpu_cores:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Đã vượt giới hạn số CPU cores ({current_cpu_cores + vm_data.cores}/{current_user.max_cpu_cores})",
+                )
+
         # Get next available VMID from Proxmox
         provisioning_service = VMProvisioningService()
         vmid = await provisioning_service.proxmox.get_next_vmid()
@@ -56,6 +100,8 @@ async def create_vm(
 
         return new_vm
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -285,4 +331,45 @@ async def get_vm_resources(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Lỗi khi lấy thông tin tài nguyên: {str(e)}",
+        )
+
+
+@router.delete("/{vm_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_vm(
+    vm_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete a VM (owner only)."""
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+
+    if not vm:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy VM",
+        )
+
+    if vm.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có quyền xóa VM này",
+        )
+
+    try:
+        proxmox = ProxmoxService()
+        # Stop VM if running
+        if vm.status == "running":
+            await proxmox.stop_vm(vm.vmid)
+        # Delete from Proxmox
+        await proxmox.delete_vm(vm.vmid)
+        # Delete from database
+        await session.delete(vm)
+        await session.commit()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi xóa VM: {str(e)}",
         )

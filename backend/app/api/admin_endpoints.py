@@ -69,6 +69,10 @@ async def create_user(
         hashed_password=hashed_password,
         telegram_chat_id=user_data.telegram_chat_id,
         is_admin=user_data.is_admin,
+        max_disk_gb=user_data.max_disk_gb,
+        max_ram_mb=user_data.max_ram_mb,
+        max_vms=user_data.max_vms,
+        max_cpu_cores=user_data.max_cpu_cores,
     )
 
     session.add(new_user)
@@ -92,6 +96,10 @@ async def create_user(
         telegram_chat_id=new_user.telegram_chat_id,
         created_at=new_user.created_at,
         vm_count=0,
+        max_disk_gb=new_user.max_disk_gb,
+        max_ram_mb=new_user.max_ram_mb,
+        max_vms=new_user.max_vms,
+        max_cpu_cores=new_user.max_cpu_cores,
     )
 
 
@@ -129,6 +137,10 @@ async def list_all_users(
             telegram_chat_id=user.telegram_chat_id,
             created_at=user.created_at,
             vm_count=vm_count,
+            max_disk_gb=user.max_disk_gb,
+            max_ram_mb=user.max_ram_mb,
+            max_vms=user.max_vms,
+            max_cpu_cores=user.max_cpu_cores,
         )
         for user, vm_count in rows
     ]
@@ -173,6 +185,14 @@ async def update_user(
             )
     if user_update.telegram_chat_id is not None:
         user.telegram_chat_id = user_update.telegram_chat_id
+    if user_update.max_disk_gb is not None:
+        user.max_disk_gb = user_update.max_disk_gb
+    if user_update.max_ram_mb is not None:
+        user.max_ram_mb = user_update.max_ram_mb
+    if user_update.max_vms is not None:
+        user.max_vms = user_update.max_vms
+    if user_update.max_cpu_cores is not None:
+        user.max_cpu_cores = user_update.max_cpu_cores
 
     await session.commit()
     await session.refresh(user)
@@ -192,6 +212,10 @@ async def update_user(
         telegram_chat_id=user.telegram_chat_id,
         created_at=user.created_at,
         vm_count=vm_count,
+        max_disk_gb=user.max_disk_gb,
+        max_ram_mb=user.max_ram_mb,
+        max_vms=user.max_vms,
+        max_cpu_cores=user.max_cpu_cores,
     )
 
 

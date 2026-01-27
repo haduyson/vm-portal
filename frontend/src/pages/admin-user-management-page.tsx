@@ -22,8 +22,9 @@ import {
   TextField,
   FormControlLabel,
   Checkbox,
+  TablePagination,
 } from '@mui/material';
-import { Delete as DeleteIcon, Add as AddIcon } from '@mui/icons-material';
+import { Delete as DeleteIcon, Add as AddIcon, Download as DownloadIcon } from '@mui/icons-material';
 import apiClient from '../services/api-client';
 
 interface AdminUser {
@@ -33,6 +34,10 @@ interface AdminUser {
   telegram_chat_id: string | null;
   created_at: string;
   vm_count: number;
+  max_disk_gb: number | null;
+  max_ram_mb: number | null;
+  max_vms: number | null;
+  max_cpu_cores: number | null;
 }
 
 export default function AdminUserManagementPage() {
@@ -42,11 +47,17 @@ export default function AdminUserManagementPage() {
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
   const [createDialog, setCreateDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [newUser, setNewUser] = useState({
     username: '',
     password: '',
     telegram_chat_id: '',
     is_admin: false,
+    max_disk_gb: 0,
+    max_ram_mb: 0,
+    max_vms: 0,
+    max_cpu_cores: 0,
   });
 
   const fetchUsers = async () => {
@@ -102,6 +113,10 @@ export default function AdminUserManagementPage() {
         username: newUser.username,
         password: newUser.password,
         is_admin: newUser.is_admin,
+        max_disk_gb: newUser.max_disk_gb > 0 ? newUser.max_disk_gb : null,
+        max_ram_mb: newUser.max_ram_mb > 0 ? newUser.max_ram_mb : null,
+        max_vms: newUser.max_vms > 0 ? newUser.max_vms : null,
+        max_cpu_cores: newUser.max_cpu_cores > 0 ? newUser.max_cpu_cores : null,
       };
       if (newUser.telegram_chat_id) {
         payload.telegram_chat_id = newUser.telegram_chat_id;
@@ -109,7 +124,7 @@ export default function AdminUserManagementPage() {
       const response = await apiClient.post('/admin/users', payload);
       setUsers((prev) => [response.data, ...prev]);
       setCreateDialog(false);
-      setNewUser({ username: '', password: '', telegram_chat_id: '', is_admin: false });
+      setNewUser({ username: '', password: '', telegram_chat_id: '', is_admin: false, max_disk_gb: 0, max_ram_mb: 0, max_vms: 0, max_cpu_cores: 0 });
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Không thể tạo người dùng');
     }
@@ -118,6 +133,40 @@ export default function AdminUserManagementPage() {
   const filteredUsers = users.filter(user =>
     user.username.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const paginatedUsers = filteredUsers.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+
+  const handleChangePage = (_event: unknown, newPage: number) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+
+  const handleExportCSV = () => {
+    const headers = ['ID', 'Tên đăng nhập', 'Quyền Admin', 'Telegram', 'Số VM', 'Ngày tạo'];
+    const csvData = filteredUsers.map(user => [
+      user.id,
+      user.username,
+      user.is_admin ? 'Có' : 'Không',
+      user.telegram_chat_id || '-',
+      user.vm_count,
+      new Date(user.created_at).toLocaleDateString('vi-VN'),
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...csvData.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `users_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+  };
 
   if (loading) {
     return (
@@ -134,13 +183,22 @@ export default function AdminUserManagementPage() {
         <Typography variant="h4">
           Quản Lý Người Dùng
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => setCreateDialog(true)}
-        >
-          Thêm người dùng
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={handleExportCSV}
+          >
+            Xuất CSV
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setCreateDialog(true)}
+          >
+            Thêm người dùng
+          </Button>
+        </Box>
       </Box>
 
       {error && (
@@ -173,7 +231,7 @@ export default function AdminUserManagementPage() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredUsers.map((user) => (
+            {paginatedUsers.map((user) => (
               <TableRow key={user.id} hover>
                 <TableCell>{user.id}</TableCell>
                 <TableCell>
@@ -212,6 +270,16 @@ export default function AdminUserManagementPage() {
             ))}
           </TableBody>
         </Table>
+        <TablePagination
+          component="div"
+          count={filteredUsers.length}
+          page={page}
+          onPageChange={handleChangePage}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+          labelRowsPerPage="Số hàng mỗi trang:"
+          labelDisplayedRows={({ from, to, count }) => `${from}-${to} của ${count}`}
+        />
       </TableContainer>
 
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
@@ -267,6 +335,42 @@ export default function AdminUserManagementPage() {
               />
             }
             label="Quyền quản trị"
+          />
+          <TextField
+            margin="dense"
+            label="Giới hạn số VM (0 = Không giới hạn)"
+            type="number"
+            fullWidth
+            value={newUser.max_vms}
+            onChange={(e) => setNewUser({ ...newUser, max_vms: parseInt(e.target.value) || 0 })}
+            inputProps={{ min: 0 }}
+          />
+          <TextField
+            margin="dense"
+            label="Giới hạn ổ cứng GB (0 = Không giới hạn)"
+            type="number"
+            fullWidth
+            value={newUser.max_disk_gb}
+            onChange={(e) => setNewUser({ ...newUser, max_disk_gb: parseInt(e.target.value) || 0 })}
+            inputProps={{ min: 0 }}
+          />
+          <TextField
+            margin="dense"
+            label="Giới hạn RAM MB (0 = Không giới hạn)"
+            type="number"
+            fullWidth
+            value={newUser.max_ram_mb}
+            onChange={(e) => setNewUser({ ...newUser, max_ram_mb: parseInt(e.target.value) || 0 })}
+            inputProps={{ min: 0 }}
+          />
+          <TextField
+            margin="dense"
+            label="Giới hạn CPU cores (0 = Không giới hạn)"
+            type="number"
+            fullWidth
+            value={newUser.max_cpu_cores}
+            onChange={(e) => setNewUser({ ...newUser, max_cpu_cores: parseInt(e.target.value) || 0 })}
+            inputProps={{ min: 0 }}
           />
         </DialogContent>
         <DialogActions>

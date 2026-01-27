@@ -29,8 +29,11 @@ import {
   Dns as DnsIcon,
   Person as PersonIcon,
   History as HistoryIcon,
+  Brightness4 as Brightness4Icon,
+  Brightness7 as Brightness7Icon,
 } from '@mui/icons-material';
 import { useAuth } from '../hooks/use-auth-context';
+import { useThemeContext } from '../app';
 
 const drawerWidth = 240;
 
@@ -38,6 +41,7 @@ export default function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const { user, logout } = useAuth();
+  const { mode, toggleTheme } = useThemeContext();
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
@@ -133,6 +137,9 @@ export default function AppLayout() {
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
             VM Portal
           </Typography>
+          <IconButton onClick={toggleTheme} color="inherit" sx={{ mr: 2 }}>
+            {mode === 'dark' ? <Brightness7Icon /> : <Brightness4Icon />}
+          </IconButton>
           <IconButton onClick={handleMenuOpen} sx={{ p: 0 }}>
             <Avatar sx={{ bgcolor: 'secondary.main' }}>
               {user?.username?.charAt(0).toUpperCase() || 'U'}

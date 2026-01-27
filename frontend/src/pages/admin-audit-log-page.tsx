@@ -11,6 +11,7 @@ import {
   Typography,
   Alert,
   Chip,
+  TablePagination,
 } from '@mui/material';
 import apiClient from '../services/api-client';
 
@@ -47,6 +48,8 @@ export default function AdminAuditLogPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   const fetchLogs = async () => {
     try {
@@ -62,6 +65,17 @@ export default function AdminAuditLogPage() {
   useEffect(() => {
     fetchLogs();
   }, []);
+
+  const paginatedLogs = logs.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+
+  const handleChangePage = (_event: unknown, newPage: number) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
 
   if (loading) {
     return (
@@ -98,7 +112,7 @@ export default function AdminAuditLogPage() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {logs.map((log) => (
+            {paginatedLogs.map((log) => (
               <TableRow key={log.id} hover>
                 <TableCell>{log.id}</TableCell>
                 <TableCell>{log.admin_username}</TableCell>
@@ -126,6 +140,16 @@ export default function AdminAuditLogPage() {
             )}
           </TableBody>
         </Table>
+        <TablePagination
+          component="div"
+          count={logs.length}
+          page={page}
+          onPageChange={handleChangePage}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+          labelRowsPerPage="Số hàng mỗi trang:"
+          labelDisplayedRows={({ from, to, count }) => `${from}-${to} của ${count}`}
+        />
       </TableContainer>
     </Box>
   );

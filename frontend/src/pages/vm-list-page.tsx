@@ -15,12 +15,18 @@ import {
   Alert,
   Snackbar,
   Link,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from '@mui/material';
 import {
   AddCircle as AddCircleIcon,
   PlayArrow as PlayArrowIcon,
   Stop as StopIcon,
   Refresh as RefreshIcon,
+  Delete as DeleteIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api-client';
@@ -43,6 +49,7 @@ export default function VMListPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; vmId: number | null; vmName: string }>({ open: false, vmId: null, vmName: '' });
   const vmsRef = useRef<VM[]>([]);
 
   const fetchVMs = async () => {
@@ -63,6 +70,21 @@ export default function VMListPage() {
     try {
       await apiClient.post(`/vms/${vmId}/${action}`);
       setSnackbar({ open: true, message: `VM ${action === 'start' ? 'đã khởi động' : action === 'stop' ? 'đã dừng' : 'đã khởi động lại'} thành công`, severity: 'success' });
+      await fetchVMs();
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.detail || 'Có lỗi xảy ra', severity: 'error' });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDeleteVM = async () => {
+    if (!deleteDialog.vmId) return;
+    setActionLoading(deleteDialog.vmId);
+    try {
+      await apiClient.delete(`/vms/${deleteDialog.vmId}`);
+      setSnackbar({ open: true, message: 'VM đã được xóa thành công', severity: 'success' });
+      setDeleteDialog({ open: false, vmId: null, vmName: '' });
       await fetchVMs();
     } catch (error: any) {
       setSnackbar({ open: true, message: error.response?.data?.detail || 'Có lỗi xảy ra', severity: 'error' });
@@ -196,6 +218,18 @@ export default function VMListPage() {
                         </IconButton>
                       </span>
                     </Tooltip>
+                    <Tooltip title="Xóa">
+                      <span>
+                        <IconButton
+                          color="error"
+                          size="small"
+                          disabled={actionLoading === vm.id}
+                          onClick={() => setDeleteDialog({ open: true, vmId: vm.id, vmName: vm.name })}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
                   </Box>
                 </TableCell>
               </TableRow>
@@ -203,6 +237,19 @@ export default function VMListPage() {
           </TableBody>
         </Table>
       </TableContainer>
+
+      <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, vmId: null, vmName: '' })}>
+        <DialogTitle>Xác nhận xóa VM</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Bạn có chắc chắn muốn xóa VM "{deleteDialog.vmName}"? Hành động này không thể hoàn tác.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialog({ open: false, vmId: null, vmName: '' })}>Hủy</Button>
+          <Button onClick={handleDeleteVM} color="error" variant="contained">Xóa</Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={snackbar.open}
