@@ -11,6 +11,7 @@ interface UserInfo {
 interface AuthContextType {
   user: UserInfo | null;
   isAuthenticated: boolean;
+  loading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -19,13 +20,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserInfo | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => authService.isAuthenticated());
+  const [loading, setLoading] = useState(() => authService.isAuthenticated());
 
   useEffect(() => {
-    const authenticated = authService.isAuthenticated();
-    if (authenticated) {
-      setIsAuthenticated(true);
-      // Fetch current user info from /auth/me
+    if (isAuthenticated) {
       apiClient
         .get('/auth/me')
         .then((res) => {
@@ -36,10 +35,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
         })
         .catch(() => {
-          // Token invalid or expired
           authService.logout();
           setUser(null);
           setIsAuthenticated(false);
+        })
+        .finally(() => {
+          setLoading(false);
         });
     }
   }, []);
@@ -63,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, login, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
