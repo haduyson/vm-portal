@@ -3,18 +3,20 @@ import apiClient from './api-client';
 interface LoginResponse {
   access_token: string;
   token_type: string;
+  username: string;
+  is_admin: boolean;
 }
 
 export const authService = {
-  async login(username: string, password: string): Promise<string> {
+  async login(username: string, password: string): Promise<LoginResponse> {
     const formData = new FormData();
     formData.append('username', username);
     formData.append('password', password);
 
     const response = await apiClient.post<LoginResponse>('/auth/login', formData);
-    const token = response.data.access_token;
-    localStorage.setItem('token', token);
-    return token;
+    const { access_token } = response.data;
+    localStorage.setItem('token', access_token);
+    return response.data;
   },
 
   logout(): void {

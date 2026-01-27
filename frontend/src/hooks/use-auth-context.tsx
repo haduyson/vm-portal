@@ -1,8 +1,14 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { authService } from '../services/auth-service';
+import apiClient from '../services/api-client';
+
+interface UserInfo {
+  username: string;
+  is_admin: boolean;
+}
 
 interface AuthContextType {
-  user: string | null;
+  user: UserInfo | null;
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
@@ -11,21 +17,31 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<string | null>(null);
+  const [user, setUser] = useState<UserInfo | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
     const authenticated = authService.isAuthenticated();
-    setIsAuthenticated(authenticated);
     if (authenticated) {
-      // Extract username from token if needed, or set a default
-      setUser('user');
+      setIsAuthenticated(true);
+      // Fetch current user info from /auth/me
+      apiClient
+        .get('/auth/me')
+        .then((res) => {
+          setUser({ username: res.data.username, is_admin: res.data.is_admin });
+        })
+        .catch(() => {
+          // Token invalid or expired
+          authService.logout();
+          setUser(null);
+          setIsAuthenticated(false);
+        });
     }
   }, []);
 
   const login = async (username: string, password: string) => {
-    await authService.login(username, password);
-    setUser(username);
+    const data = await authService.login(username, password);
+    setUser({ username: data.username, is_admin: data.is_admin });
     setIsAuthenticated(true);
   };
 

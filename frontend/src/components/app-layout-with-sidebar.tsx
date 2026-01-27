@@ -3,6 +3,7 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import {
   AppBar,
   Box,
+  Divider,
   Drawer,
   IconButton,
   List,
@@ -10,6 +11,7 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  ListSubheader,
   Menu,
   MenuItem,
   Toolbar,
@@ -23,6 +25,8 @@ import {
   Dashboard as DashboardIcon,
   AddCircle as AddCircleIcon,
   List as ListIcon,
+  People as PeopleIcon,
+  Dns as DnsIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../hooks/use-auth-context';
 
@@ -60,6 +64,11 @@ export default function AppLayout() {
     { text: 'Danh sách VM', icon: <ListIcon />, path: '/vms' },
   ];
 
+  const adminMenuItems = [
+    { text: 'Quản lý người dùng', icon: <PeopleIcon />, path: '/admin/users' },
+    { text: 'Tất cả VM', icon: <DnsIcon />, path: '/admin/vms' },
+  ];
+
   const drawer = (
     <div>
       <Toolbar>
@@ -77,6 +86,25 @@ export default function AppLayout() {
           </ListItem>
         ))}
       </List>
+      {user?.is_admin && (
+        <>
+          <Divider />
+          <List
+            subheader={
+              <ListSubheader component="div">Quản trị</ListSubheader>
+            }
+          >
+            {adminMenuItems.map((item) => (
+              <ListItem key={item.text} disablePadding>
+                <ListItemButton onClick={() => navigate(item.path)}>
+                  <ListItemIcon>{item.icon}</ListItemIcon>
+                  <ListItemText primary={item.text} />
+                </ListItemButton>
+              </ListItem>
+            ))}
+          </List>
+        </>
+      )}
     </div>
   );
 
@@ -103,7 +131,7 @@ export default function AppLayout() {
           </Typography>
           <IconButton onClick={handleMenuOpen} sx={{ p: 0 }}>
             <Avatar sx={{ bgcolor: 'secondary.main' }}>
-              {user?.charAt(0).toUpperCase() || 'U'}
+              {user?.username?.charAt(0).toUpperCase() || 'U'}
             </Avatar>
           </IconButton>
           <Menu

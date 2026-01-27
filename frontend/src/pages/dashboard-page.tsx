@@ -48,7 +48,7 @@ export default function DashboardPage() {
   return (
     <Box>
       <Typography variant="h4" gutterBottom>
-        Xin chào, {user}!
+        Xin chào, {user?.username}!
       </Typography>
 
       <Grid container spacing={3} sx={{ mt: 2 }}>

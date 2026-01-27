@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.security import hash_password, verify_password, create_access_token
+from app.core.security import hash_password, verify_password, create_access_token, get_current_user
 from app.database import get_session
 from app.models.user_model import User
 from app.schemas.user_schemas import UserCreate, UserLogin, UserResponse, Token
@@ -65,4 +65,14 @@ async def login(
     # Create access token
     access_token = create_access_token(data={"sub": user.username})
 
-    return Token(access_token=access_token)
+    return Token(
+        access_token=access_token,
+        username=user.username,
+        is_admin=user.is_admin,
+    )
+
+
+@router.get("/me", response_model=UserResponse)
+async def get_me(current_user: User = Depends(get_current_user)):
+    """Get current authenticated user profile."""
+    return current_user
