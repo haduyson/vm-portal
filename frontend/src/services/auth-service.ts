@@ -9,11 +9,7 @@ interface LoginResponse {
 
 export const authService = {
   async login(username: string, password: string): Promise<LoginResponse> {
-    const formData = new FormData();
-    formData.append('username', username);
-    formData.append('password', password);
-
-    const response = await apiClient.post<LoginResponse>('/auth/login', formData);
+    const response = await apiClient.post<LoginResponse>('/auth/login', { username, password });
     const { access_token } = response.data;
     localStorage.setItem('token', access_token);
     return response.data;
