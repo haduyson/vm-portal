@@ -184,7 +184,7 @@ async def forgot_password(
     await session.commit()
 
     # Send via Telegram
-    telegram = TelegramNotifier()
+    telegram = await TelegramNotifier.from_db_config(session)
     await telegram.send_password_reset(user.telegram_chat_id, user.username, new_password)
 
     return {"message": "Mật khẩu mới đã được gửi qua Telegram."}

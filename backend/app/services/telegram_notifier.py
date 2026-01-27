@@ -1,15 +1,30 @@
 import aiohttp
 from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 
 
 class TelegramNotifier:
     """Service for sending Telegram notifications."""
 
-    def __init__(self):
-        self.bot_token = settings.TELEGRAM_BOT_TOKEN
-        self.default_chat_id = settings.TELEGRAM_DEFAULT_CHAT_ID
+    def __init__(self, bot_token: Optional[str] = None, default_chat_id: Optional[str] = None):
+        """
+        Initialize TelegramNotifier with optional bot_token and default_chat_id.
+        If not provided, will use values from settings.
+        """
+        self.bot_token = bot_token or settings.TELEGRAM_BOT_TOKEN
+        self.default_chat_id = default_chat_id or settings.TELEGRAM_DEFAULT_CHAT_ID
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
+
+    @classmethod
+    async def from_db_config(cls, session: AsyncSession) -> "TelegramNotifier":
+        """Create TelegramNotifier instance using database config with env fallback."""
+        from app.services.system_settings_service import get_telegram_config
+        config = await get_telegram_config(session)
+        return cls(
+            bot_token=config["bot_token"],
+            default_chat_id=config["default_chat_id"]
+        )
 
     async def send_message(self, chat_id: str, message: str, parse_mode: str = "Markdown") -> bool:
         """Send a message via Telegram Bot API."""

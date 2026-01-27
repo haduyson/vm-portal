@@ -17,11 +17,17 @@ from app.schemas.admin_schemas import (
     AdminUserUpdate,
     AdminVMResponse,
     AdminPasswordResetResponse,
+    TelegramSettingsResponse,
+    TelegramSettingsUpdate,
 )
 from app.core.security import hash_password
 from app.services.proxmox_client import ProxmoxService
 from app.core.generate_random_password import generate_random_password
 from app.services.telegram_notifier import TelegramNotifier
+from app.services.system_settings_service import (
+    get_telegram_config,
+    set_setting,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -248,7 +254,7 @@ async def reset_user_password(
     # Try to send via Telegram if user has telegram_chat_id
     telegram_sent = False
     if user.telegram_chat_id:
-        telegram = TelegramNotifier()
+        telegram = await TelegramNotifier.from_db_config(session)
         telegram_sent = await telegram.send_password_reset(
             user.telegram_chat_id, user.username, new_password
         )
@@ -593,3 +599,106 @@ async def get_audit_logs(
         )
         for log, username in rows
     ]
+
+
+@router.get("/settings/telegram", response_model=TelegramSettingsResponse)
+async def get_telegram_settings(
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get current Telegram bot configuration (admin only)."""
+    config = await get_telegram_config(session)
+
+    # Mask bot token for security (show only last 4 chars)
+    bot_token = config["bot_token"]
+    if bot_token and len(bot_token) > 4:
+        masked_token = "*" * (len(bot_token) - 4) + bot_token[-4:]
+    else:
+        masked_token = "****" if bot_token else ""
+
+    return TelegramSettingsResponse(
+        bot_token_masked=masked_token,
+        default_chat_id=config["default_chat_id"],
+        source=config["source"]
+    )
+
+
+@router.put("/settings/telegram", response_model=TelegramSettingsResponse)
+async def update_telegram_settings(
+    settings_update: TelegramSettingsUpdate,
+    admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Update Telegram bot configuration (admin only)."""
+    if settings_update.bot_token is not None:
+        await set_setting(session, "telegram_bot_token", settings_update.bot_token)
+
+    if settings_update.default_chat_id is not None:
+        await set_setting(session, "telegram_default_chat_id", settings_update.default_chat_id)
+
+    # Log audit
+    details = []
+    if settings_update.bot_token is not None:
+        details.append("Updated bot token")
+    if settings_update.default_chat_id is not None:
+        details.append(f"Updated default chat ID to {settings_update.default_chat_id}")
+
+    await log_audit(
+        session,
+        admin.id,
+        "update_telegram_settings",
+        "system",
+        None,
+        ", ".join(details)
+    )
+
+    # Return updated config
+    config = await get_telegram_config(session)
+    bot_token = config["bot_token"]
+    if bot_token and len(bot_token) > 4:
+        masked_token = "*" * (len(bot_token) - 4) + bot_token[-4:]
+    else:
+        masked_token = "****" if bot_token else ""
+
+    return TelegramSettingsResponse(
+        bot_token_masked=masked_token,
+        default_chat_id=config["default_chat_id"],
+        source=config["source"]
+    )
+
+
+@router.post("/settings/telegram/test", status_code=status.HTTP_200_OK)
+async def test_telegram_settings(
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Send a test message to verify Telegram configuration (admin only)."""
+    config = await get_telegram_config(session)
+
+    if not config["bot_token"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bot token chưa được cấu hình"
+        )
+
+    if not config["default_chat_id"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Chat ID mặc định chưa được cấu hình"
+        )
+
+    telegram = TelegramNotifier(
+        bot_token=config["bot_token"],
+        default_chat_id=config["default_chat_id"]
+    )
+
+    test_message = "🔔 *Thông báo kiểm tra*\n\nCấu hình Telegram Bot đã hoạt động thành công!"
+    success = await telegram.send_message(config["default_chat_id"], test_message)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể gửi tin nhắn. Vui lòng kiểm tra lại bot token và chat ID"
+        )
+
+    return {"message": "Tin nhắn thử đã được gửi thành công"}

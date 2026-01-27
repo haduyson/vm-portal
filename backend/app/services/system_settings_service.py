@@ -1,0 +1,52 @@
+from typing import Optional
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.models.system_settings_model import SystemSetting
+from app.config import settings
+
+
+async def get_setting(session: AsyncSession, key: str) -> Optional[str]:
+    """Get a system setting value by key from database."""
+    result = await session.execute(
+        select(SystemSetting).where(SystemSetting.key == key)
+    )
+    setting = result.scalar_one_or_none()
+    return setting.value if setting else None
+
+
+async def set_setting(session: AsyncSession, key: str, value: Optional[str]) -> None:
+    """Set or update a system setting in database."""
+    result = await session.execute(
+        select(SystemSetting).where(SystemSetting.key == key)
+    )
+    setting = result.scalar_one_or_none()
+
+    if setting:
+        setting.value = value
+    else:
+        setting = SystemSetting(key=key, value=value)
+        session.add(setting)
+
+    await session.commit()
+
+
+async def get_telegram_config(session: AsyncSession) -> dict:
+    """
+    Get Telegram configuration from database, with fallback to environment variables.
+    Returns dict with bot_token, default_chat_id, and source indicator.
+    """
+    db_bot_token = await get_setting(session, "telegram_bot_token")
+    db_default_chat_id = await get_setting(session, "telegram_default_chat_id")
+
+    # Use DB values if available, otherwise fallback to env vars
+    bot_token = db_bot_token if db_bot_token else settings.TELEGRAM_BOT_TOKEN
+    default_chat_id = db_default_chat_id if db_default_chat_id else settings.TELEGRAM_DEFAULT_CHAT_ID
+
+    # Determine source (database takes priority)
+    source = "database" if (db_bot_token or db_default_chat_id) else "environment"
+
+    return {
+        "bot_token": bot_token,
+        "default_chat_id": default_chat_id,
+        "source": source
+    }

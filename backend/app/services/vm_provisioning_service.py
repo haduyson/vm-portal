@@ -15,7 +15,6 @@ class VMProvisioningService:
     def __init__(self):
         self.proxmox = ProxmoxService()
         self.cloud_init = CloudInitGenerator()
-        self.telegram = TelegramNotifier()
 
     async def provision_vm(
         self,
@@ -89,7 +88,8 @@ class VMProvisioningService:
                 await session.commit()
 
             # Send error notification
-            await self.telegram.send_vm_error(
+            telegram = await TelegramNotifier.from_db_config(session)
+            await telegram.send_vm_error(
                 user_telegram_chat_id,
                 vm.name if vm else "Unknown",
                 str(e),
@@ -135,7 +135,8 @@ class VMProvisioningService:
                             await session.commit()
 
                             # Send Telegram notification
-                            await self.telegram.send_vm_ready(
+                            telegram = await TelegramNotifier.from_db_config(session)
+                            await telegram.send_vm_ready(
                                 user_telegram_chat_id,
                                 vm.name,
                                 ip_address,

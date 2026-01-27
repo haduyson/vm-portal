@@ -71,3 +71,14 @@ class AdminStatsResponse(BaseModel):
 class AdminPasswordResetResponse(BaseModel):
     new_password: str
     telegram_sent: bool
+
+
+class TelegramSettingsResponse(BaseModel):
+    bot_token_masked: str
+    default_chat_id: Optional[str]
+    source: str  # "database" or "environment"
+
+
+class TelegramSettingsUpdate(BaseModel):
+    bot_token: Optional[str] = None
+    default_chat_id: Optional[str] = None
