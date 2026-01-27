@@ -8,14 +8,26 @@ import {
   TextField,
   Typography,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  Link,
 } from '@mui/material';
 import { useAuth } from '../hooks/use-auth-context';
+import apiClient from '../services/api-client';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
+  const [forgotUsername, setForgotUsername] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState('');
+  const [forgotError, setForgotError] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -31,6 +43,26 @@ export default function LoginPage() {
       setError('Tên đăng nhập hoặc mật khẩu không đúng');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    setForgotError('');
+    setForgotSuccess('');
+    setForgotLoading(true);
+
+    try {
+      const response = await apiClient.post('/auth/forgot-password', {
+        username: forgotUsername,
+      });
+      setForgotSuccess(response.data.message);
+      setForgotUsername('');
+    } catch (err: any) {
+      setForgotError(
+        err.response?.data?.detail || 'Không thể đặt lại mật khẩu'
+      );
+    } finally {
+      setForgotLoading(false);
     }
   };
 
@@ -88,9 +120,77 @@ export default function LoginPage() {
             >
               {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
             </Button>
+            <Box sx={{ textAlign: 'center' }}>
+              <Link
+                component="button"
+                variant="body2"
+                onClick={() => setForgotPasswordOpen(true)}
+                sx={{ cursor: 'pointer' }}
+              >
+                Quên mật khẩu?
+              </Link>
+            </Box>
           </Box>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={forgotPasswordOpen}
+        onClose={() => {
+          setForgotPasswordOpen(false);
+          setForgotUsername('');
+          setForgotError('');
+          setForgotSuccess('');
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Quên mật khẩu</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Nhập tên đăng nhập của bạn. Nếu tài khoản đã liên kết với Telegram, mật khẩu mới sẽ được gửi qua Telegram.
+          </DialogContentText>
+          {forgotError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {forgotError}
+            </Alert>
+          )}
+          {forgotSuccess && (
+            <Alert severity="success" sx={{ mt: 2 }}>
+              {forgotSuccess}
+            </Alert>
+          )}
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Tên đăng nhập"
+            type="text"
+            fullWidth
+            value={forgotUsername}
+            onChange={(e) => setForgotUsername(e.target.value)}
+            disabled={forgotLoading}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setForgotPasswordOpen(false);
+              setForgotUsername('');
+              setForgotError('');
+              setForgotSuccess('');
+            }}
+          >
+            Đóng
+          </Button>
+          <Button
+            onClick={handleForgotPassword}
+            variant="contained"
+            disabled={!forgotUsername || forgotLoading}
+          >
+            {forgotLoading ? 'Đang xử lý...' : 'Gửi'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

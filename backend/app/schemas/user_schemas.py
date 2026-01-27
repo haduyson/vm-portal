@@ -67,3 +67,7 @@ class ProfileUpdate(BaseModel):
         if not re.search(r'\d', v):
             raise ValueError('Mật khẩu phải có ít nhất 1 chữ số')
         return v
+
+
+class ForgotPasswordRequest(BaseModel):
+    username: str

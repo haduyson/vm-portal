@@ -85,3 +85,19 @@ Kết nối: `ssh {username}@{ssh_domain}`"""
 Vui lòng liên hệ quản trị viên."""
 
         return await self.send_message(target_chat_id, message)
+
+    async def send_password_reset(
+        self,
+        chat_id: str,
+        username: str,
+        new_password: str,
+    ) -> bool:
+        """Send password reset notification."""
+        message = f"""🔐 *Đặt lại mật khẩu VM Portal*
+
+*Tài khoản:* `{username}`
+*Mật khẩu mới:* `{new_password}`
+
+Vui lòng đăng nhập và đổi mật khẩu tại trang Hồ sơ."""
+
+        return await self.send_message(chat_id, message)

@@ -16,9 +16,12 @@ from app.schemas.admin_schemas import (
     AdminUserResponse,
     AdminUserUpdate,
     AdminVMResponse,
+    AdminPasswordResetResponse,
 )
 from app.core.security import hash_password
 from app.services.proxmox_client import ProxmoxService
+from app.core.generate_random_password import generate_random_password
+from app.services.telegram_notifier import TelegramNotifier
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -216,6 +219,53 @@ async def update_user(
         max_ram_mb=user.max_ram_mb,
         max_vms=user.max_vms,
         max_cpu_cores=user.max_cpu_cores,
+    )
+
+
+@router.post("/users/{user_id}/reset-password", response_model=AdminPasswordResetResponse)
+async def reset_user_password(
+    user_id: int,
+    admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Reset user password (admin only)."""
+    result = await session.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy người dùng",
+        )
+
+    # Generate new random password
+    new_password = generate_random_password()
+
+    # Hash and save new password
+    user.hashed_password = hash_password(new_password)
+    await session.commit()
+
+    # Try to send via Telegram if user has telegram_chat_id
+    telegram_sent = False
+    if user.telegram_chat_id:
+        telegram = TelegramNotifier()
+        telegram_sent = await telegram.send_password_reset(
+            user.telegram_chat_id, user.username, new_password
+        )
+
+    # Log audit
+    await log_audit(
+        session,
+        admin.id,
+        "reset_password",
+        "user",
+        user.id,
+        f"Reset password for user: {user.username} (Telegram: {telegram_sent})",
+    )
+
+    return AdminPasswordResetResponse(
+        new_password=new_password,
+        telegram_sent=telegram_sent,
     )
 
 

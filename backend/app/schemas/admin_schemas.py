@@ -66,3 +66,8 @@ class AdminStatsResponse(BaseModel):
     total_vms: int
     running_vms: int
     creating_vms: int
+
+
+class AdminPasswordResetResponse(BaseModel):
+    new_password: str
+    telegram_sent: bool

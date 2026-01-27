@@ -5,9 +5,11 @@ from app.core.security import hash_password, verify_password, create_access_toke
 from app.database import get_session
 from app.models.user_model import User
 from app.models.virtual_machine_model import VirtualMachine
-from app.schemas.user_schemas import UserCreate, UserLogin, UserResponse, Token, ProfileUpdate
+from app.schemas.user_schemas import UserCreate, UserLogin, UserResponse, Token, ProfileUpdate, ForgotPasswordRequest
 from pydantic import BaseModel
 from typing import Optional
+from app.core.generate_random_password import generate_random_password
+from app.services.telegram_notifier import TelegramNotifier
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -149,3 +151,40 @@ async def get_quota(
         max_cpu_cores=current_user.max_cpu_cores,
         used_cpu_cores=used_cpu_cores,
     )
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Reset password and send new password via Telegram (public endpoint)."""
+    # Look up user by username
+    result = await session.execute(
+        select(User).where(User.username == request.username)
+    )
+    user = result.scalar_one_or_none()
+
+    # Generic success response to prevent username enumeration
+    if not user:
+        return {"message": "Nếu tài khoản tồn tại và có liên kết Telegram, mật khẩu mới sẽ được gửi."}
+
+    # Check if user has telegram_chat_id
+    if not user.telegram_chat_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tài khoản chưa liên kết Telegram. Vui lòng liên hệ quản trị viên.",
+        )
+
+    # Generate new random password
+    new_password = generate_random_password()
+
+    # Hash and save new password
+    user.hashed_password = hash_password(new_password)
+    await session.commit()
+
+    # Send via Telegram
+    telegram = TelegramNotifier()
+    await telegram.send_password_reset(user.telegram_chat_id, user.username, new_password)
+
+    return {"message": "Mật khẩu mới đã được gửi qua Telegram."}

@@ -24,7 +24,7 @@ import {
   Checkbox,
   TablePagination,
 } from '@mui/material';
-import { Delete as DeleteIcon, Add as AddIcon, Download as DownloadIcon } from '@mui/icons-material';
+import { Delete as DeleteIcon, Add as AddIcon, Download as DownloadIcon, Key as KeyIcon } from '@mui/icons-material';
 import apiClient from '../services/api-client';
 
 interface AdminUser {
@@ -49,6 +49,12 @@ export default function AdminUserManagementPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [resetPasswordDialog, setResetPasswordDialog] = useState(false);
+  const [resetPasswordData, setResetPasswordData] = useState<{
+    username: string;
+    password: string;
+    telegram_sent: boolean;
+  } | null>(null);
   const [newUser, setNewUser] = useState({
     username: '',
     password: '',
@@ -127,6 +133,21 @@ export default function AdminUserManagementPage() {
       setNewUser({ username: '', password: '', telegram_chat_id: '', is_admin: false, max_disk_gb: 0, max_ram_mb: 0, max_vms: 0, max_cpu_cores: 0 });
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Không thể tạo người dùng');
+    }
+  };
+
+  const handleResetPassword = async (user: AdminUser) => {
+    try {
+      setError('');
+      const response = await apiClient.post(`/admin/users/${user.id}/reset-password`);
+      setResetPasswordData({
+        username: user.username,
+        password: response.data.new_password,
+        telegram_sent: response.data.telegram_sent,
+      });
+      setResetPasswordDialog(true);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Không thể đặt lại mật khẩu');
     }
   };
 
@@ -259,9 +280,18 @@ export default function AdminUserManagementPage() {
                 </TableCell>
                 <TableCell align="center">
                   <IconButton
+                    color="primary"
+                    size="small"
+                    onClick={() => handleResetPassword(user)}
+                    title="Đặt lại mật khẩu"
+                  >
+                    <KeyIcon />
+                  </IconButton>
+                  <IconButton
                     color="error"
                     size="small"
                     onClick={() => setDeleteTarget(user)}
+                    title="Xóa người dùng"
                   >
                     <DeleteIcon />
                   </IconButton>
@@ -294,6 +324,61 @@ export default function AdminUserManagementPage() {
           <Button onClick={() => setDeleteTarget(null)}>Hủy</Button>
           <Button onClick={handleDelete} color="error" variant="contained">
             Xóa
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={resetPasswordDialog}
+        onClose={() => {
+          setResetPasswordDialog(false);
+          setResetPasswordData(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Mật khẩu mới</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            Mật khẩu đã được đặt lại cho người dùng <strong>{resetPasswordData?.username}</strong>.
+          </DialogContentText>
+          <Alert severity={resetPasswordData?.telegram_sent ? 'success' : 'warning'} sx={{ mb: 2 }}>
+            {resetPasswordData?.telegram_sent
+              ? 'Mật khẩu đã được gửi qua Telegram.'
+              : 'Người dùng chưa có Telegram. Vui lòng chia sẻ mật khẩu thủ công.'}
+          </Alert>
+          <TextField
+            label="Mật khẩu mới"
+            value={resetPasswordData?.password || ''}
+            fullWidth
+            InputProps={{
+              readOnly: true,
+            }}
+            onClick={(e) => {
+              const target = e.target as HTMLInputElement;
+              target.select();
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              if (resetPasswordData?.password) {
+                navigator.clipboard.writeText(resetPasswordData.password);
+              }
+            }}
+            variant="outlined"
+          >
+            Sao chép
+          </Button>
+          <Button
+            onClick={() => {
+              setResetPasswordDialog(false);
+              setResetPasswordData(null);
+            }}
+            variant="contained"
+          >
+            Đóng
           </Button>
         </DialogActions>
       </Dialog>
