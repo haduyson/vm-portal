@@ -8,6 +8,9 @@ class VirtualMachine(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    proxmox_server_id = Column(
+        Integer, ForeignKey("proxmox_servers.id"), nullable=True, index=True
+    )
     vmid = Column(Integer, unique=True, nullable=False, index=True)
     name = Column(String, nullable=False)
     cores = Column(Integer, nullable=False)

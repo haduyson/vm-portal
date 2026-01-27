@@ -5,7 +5,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.database import Base
-from app.models import User, VirtualMachine  # Import all models
+from app.models import User, VirtualMachine, ProxmoxServer  # Import all models
 from app.config import settings
 
 # this is the Alembic Config object, which provides

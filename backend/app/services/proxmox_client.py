@@ -8,23 +8,74 @@ from app.config import settings
 class ProxmoxService:
     """Service for interacting with Proxmox VE API."""
 
-    def __init__(self, host: Optional[str] = None, token_value: Optional[str] = None):
+    def __init__(
+        self,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        user: Optional[str] = None,
+        token_name: Optional[str] = None,
+        token_value: Optional[str] = None,
+        node: Optional[str] = None,
+        iso_storage: Optional[str] = None,
+    ):
         self.proxmox = ProxmoxAPI(
             host or settings.PROXMOX_HOST,
-            port=settings.PROXMOX_PORT,
-            user=settings.PROXMOX_USER,
-            token_name=settings.PROXMOX_TOKEN_NAME,
+            port=port or settings.PROXMOX_PORT,
+            user=user or settings.PROXMOX_USER,
+            token_name=token_name or settings.PROXMOX_TOKEN_NAME,
             token_value=token_value or settings.PROXMOX_TOKEN_VALUE,
             verify_ssl=settings.PROXMOX_VERIFY_SSL,
         )
-        self.node = settings.PROXMOX_NODE
+        self.node = node or settings.PROXMOX_NODE
+        self.iso_storage = iso_storage or settings.PROXMOX_ISO_STORAGE
 
+    @classmethod
+    def from_server(cls, server) -> "ProxmoxService":
+        """Create ProxmoxService from a ProxmoxServer DB model."""
+        return cls(
+            host=server.host,
+            port=server.port,
+            user=server.user,
+            token_name=server.token_name,
+            token_value=server.token_value,
+            node=server.node,
+            iso_storage=server.iso_storage,
+        )
 
-async def create_proxmox_service(session: AsyncSession) -> ProxmoxService:
-    """Factory: create ProxmoxService with DB config (fallback to env)."""
-    from app.services.system_settings_service import get_proxmox_config
-    config = await get_proxmox_config(session)
-    return ProxmoxService(host=config["host"], token_value=config["token_value"])
+    async def get_node_resources(self) -> Dict:
+        """Get node-level CPU/RAM/Disk usage from Proxmox."""
+        def _get_resources():
+            try:
+                node_status = self.proxmox.nodes(self.node).status.get()
+
+                cpu_percent = round(node_status.get("cpu", 0) * 100, 2)
+
+                mem_used = node_status.get("memory", {}).get("used", 0)
+                mem_total = node_status.get("memory", {}).get("total", 1)
+                memory_used_mb = round(mem_used / (1024 * 1024), 2)
+                memory_total_mb = round(mem_total / (1024 * 1024), 2)
+
+                rootfs = node_status.get("rootfs", {})
+                disk_used_gb = round(rootfs.get("used", 0) / (1024 ** 3), 2)
+                disk_total_gb = round(rootfs.get("total", 1) / (1024 ** 3), 2)
+
+                return {
+                    "cpu_percent": cpu_percent,
+                    "memory_used_mb": memory_used_mb,
+                    "memory_total_mb": memory_total_mb,
+                    "disk_used_gb": disk_used_gb,
+                    "disk_total_gb": disk_total_gb,
+                }
+            except Exception as e:
+                return {
+                    "cpu_percent": 0,
+                    "memory_used_mb": 0,
+                    "memory_total_mb": 0,
+                    "disk_used_gb": 0,
+                    "disk_total_gb": 0,
+                }
+
+        return await asyncio.to_thread(_get_resources)
 
     async def get_next_vmid(self) -> int:
         """Get the next available VMID from Proxmox."""
@@ -44,6 +95,8 @@ async def create_proxmox_service(session: AsyncSession) -> ProxmoxService:
         iso: str,
     ) -> Dict:
         """Create a new VM in Proxmox."""
+        iso_storage = self.iso_storage
+
         def _create_vm():
             return self.proxmox.nodes(self.node).qemu.post(
                 vmid=vmid,
@@ -52,10 +105,10 @@ async def create_proxmox_service(session: AsyncSession) -> ProxmoxService:
                 memory=memory_mb,
                 scsihw="virtio-scsi-pci",
                 scsi0=f"{storage}:{disk_gb}",
-                ide2=f"{settings.PROXMOX_ISO_STORAGE}:iso/{iso},media=cdrom",
+                ide2=f"{iso_storage}:iso/{iso},media=cdrom",
                 net0="virtio,bridge=vmbr0",
                 boot="order=ide2;scsi0",
-                ostype="l26",  # Linux 2.6+ kernel
+                ostype="l26",
                 agent="enabled=1",
             )
 
@@ -75,7 +128,6 @@ async def create_proxmox_service(session: AsyncSession) -> ProxmoxService:
                 status = self.proxmox.nodes(self.node).qemu(vmid).status.current.get()
                 result = {"status": status.get("status"), "ip_address": None}
 
-                # Try to get IP from QEMU guest agent
                 if status.get("status") == "running":
                     try:
                         interfaces = self.proxmox.nodes(self.node).qemu(vmid).agent("network-get-interfaces").get()
@@ -86,7 +138,7 @@ async def create_proxmox_service(session: AsyncSession) -> ProxmoxService:
                                         result["ip_address"] = addr.get("ip-address")
                                         return result
                     except Exception:
-                        pass  # QEMU agent not ready yet
+                        pass
 
                 return result
             except Exception as e:
@@ -96,9 +148,11 @@ async def create_proxmox_service(session: AsyncSession) -> ProxmoxService:
 
     async def configure_cloud_init(self, vmid: int, userdata_file: str) -> Dict:
         """Configure cloud-init for a VM."""
+        iso_storage = self.iso_storage
+
         def _configure():
             return self.proxmox.nodes(self.node).qemu(vmid).config.put(
-                cicustom=f"user={settings.PROXMOX_ISO_STORAGE}:snippets/{userdata_file}"
+                cicustom=f"user={iso_storage}:snippets/{userdata_file}"
             )
 
         return await asyncio.to_thread(_configure)
@@ -198,7 +252,6 @@ async def create_proxmox_service(session: AsyncSession) -> ProxmoxService:
             try:
                 status = self.proxmox.nodes(self.node).qemu(vmid).status.current.get()
 
-                # Calculate percentages
                 cpu_percent = round(status.get('cpu', 0) * 100, 2)
 
                 mem_used = status.get('mem', 0)
@@ -220,7 +273,6 @@ async def create_proxmox_service(session: AsyncSession) -> ProxmoxService:
                 }
             except Exception as e:
                 return {
-                    'error': str(e),
                     'cpu_percent': 0,
                     'memory_used_mb': 0,
                     'memory_total_mb': 0,
@@ -229,3 +281,34 @@ async def create_proxmox_service(session: AsyncSession) -> ProxmoxService:
                 }
 
         return await asyncio.to_thread(_get_resources)
+
+
+async def create_proxmox_service(session: AsyncSession) -> ProxmoxService:
+    """Factory: create ProxmoxService with DB config (fallback to env)."""
+    from app.services.system_settings_service import get_proxmox_config
+    config = await get_proxmox_config(session)
+    return ProxmoxService(host=config["host"], token_value=config["token_value"])
+
+
+async def create_proxmox_service_for_server(server_id: int, session: AsyncSession) -> ProxmoxService:
+    """Create ProxmoxService from a specific server in the DB. Falls back to env vars."""
+    from app.models.proxmox_server_model import ProxmoxServer
+    from sqlalchemy import select
+
+    result = await session.execute(
+        select(ProxmoxServer).where(ProxmoxServer.id == server_id)
+    )
+    server = result.scalar_one_or_none()
+    if server:
+        return ProxmoxService.from_server(server)
+
+    # Fallback to env vars
+    return ProxmoxService()
+
+
+async def create_proxmox_service_for_vm(vm, session: AsyncSession) -> ProxmoxService:
+    """Create ProxmoxService for a VM. Uses vm.proxmox_server_id if set, else falls back."""
+    if vm.proxmox_server_id:
+        return await create_proxmox_service_for_server(vm.proxmox_server_id, session)
+    # Backward compat: VM created before multi-server
+    return await create_proxmox_service(session)

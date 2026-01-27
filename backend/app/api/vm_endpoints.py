@@ -6,17 +6,25 @@ from app.core.security import get_current_user
 from app.database import get_session
 from app.models.user_model import User
 from app.models.virtual_machine_model import VirtualMachine
+from app.models.proxmox_server_model import ProxmoxServer
 from app.schemas.vm_schemas import (
     VMCreate, VMResponse, VMListResponse, VMResourceResponse,
     VMCloneRequest, VMMetricsDataPoint, VMMetricsResponse, VMConsoleResponse,
 )
 from app.services.system_settings_service import get_setting
 from app.services.vm_provisioning_service import VMProvisioningService
-from app.services.proxmox_client import ProxmoxService, create_proxmox_service
+from app.services.proxmox_client import (
+    ProxmoxService, create_proxmox_service_for_vm,
+    create_proxmox_service_for_server,
+)
 from app.config import settings
 import asyncio
+import importlib
+
+_ps_schemas = importlib.import_module("app.schemas.proxmox-server-schemas")
 
 router = APIRouter(prefix="/vms", tags=["virtual-machines"])
+proxmox_servers_public_router = APIRouter(tags=["proxmox-servers-public"])
 
 
 @router.post("", response_model=VMResponse, status_code=status.HTTP_201_CREATED)
@@ -33,13 +41,11 @@ async def create_vm(
         )
         user_vms = result.scalars().all()
 
-        # Count current usage
         current_vm_count = len(user_vms)
         current_disk_gb = sum(vm.disk_gb for vm in user_vms)
         current_ram_mb = sum(vm.memory_mb for vm in user_vms)
         current_cpu_cores = sum(vm.cores for vm in user_vms)
 
-        # Check VM count quota
         if current_user.max_vms is not None:
             if current_vm_count >= current_user.max_vms:
                 raise HTTPException(
@@ -47,7 +53,6 @@ async def create_vm(
                     detail=f"Đã vượt giới hạn số VM tối đa ({current_vm_count}/{current_user.max_vms})",
                 )
 
-        # Check disk quota
         if current_user.max_disk_gb is not None:
             if current_disk_gb + vm_data.disk_gb > current_user.max_disk_gb:
                 raise HTTPException(
@@ -55,7 +60,6 @@ async def create_vm(
                     detail=f"Đã vượt giới hạn dung lượng ổ cứng ({current_disk_gb + vm_data.disk_gb}/{current_user.max_disk_gb} GB)",
                 )
 
-        # Check RAM quota
         if current_user.max_ram_mb is not None:
             if current_ram_mb + vm_data.memory_mb > current_user.max_ram_mb:
                 raise HTTPException(
@@ -63,7 +67,6 @@ async def create_vm(
                     detail=f"Đã vượt giới hạn RAM ({(current_ram_mb + vm_data.memory_mb) // 1024}/{current_user.max_ram_mb // 1024} GB)",
                 )
 
-        # Check CPU cores quota
         if current_user.max_cpu_cores is not None:
             if current_cpu_cores + vm_data.cores > current_user.max_cpu_cores:
                 raise HTTPException(
@@ -71,13 +74,50 @@ async def create_vm(
                     detail=f"Đã vượt giới hạn số CPU cores ({current_cpu_cores + vm_data.cores}/{current_user.max_cpu_cores})",
                 )
 
-        # Get next available VMID from Proxmox
-        provisioning_service = await VMProvisioningService.create(session)
+        # Resolve Proxmox server
+        server = None
+        if vm_data.server_id:
+            srv_result = await session.execute(
+                select(ProxmoxServer).where(
+                    ProxmoxServer.id == vm_data.server_id,
+                    ProxmoxServer.is_active == True,
+                )
+            )
+            server = srv_result.scalar_one_or_none()
+            if not server:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Server Proxmox không tồn tại hoặc không khả dụng",
+                )
+        else:
+            # Use first active server as default
+            srv_result = await session.execute(
+                select(ProxmoxServer)
+                .where(ProxmoxServer.is_active == True)
+                .order_by(ProxmoxServer.id)
+                .limit(1)
+            )
+            server = srv_result.scalar_one_or_none()
+
+        # Build ProxmoxService and provisioning service
+        if server:
+            proxmox_svc = ProxmoxService.from_server(server)
+            provisioning_service = VMProvisioningService(proxmox=proxmox_svc)
+            node_name = server.node
+            storage_name = server.vm_storage
+            server_id = server.id
+        else:
+            provisioning_service = await VMProvisioningService.create(session)
+            node_name = settings.PROXMOX_NODE
+            storage_name = settings.PROXMOX_VM_STORAGE
+            server_id = None
+
         vmid = await provisioning_service.proxmox.get_next_vmid()
 
         # Create VM record in database
         new_vm = VirtualMachine(
             user_id=current_user.id,
+            proxmox_server_id=server_id,
             vmid=vmid,
             name=vm_data.name,
             cores=vm_data.cores,
@@ -85,8 +125,8 @@ async def create_vm(
             disk_gb=vm_data.disk_gb,
             os_type=vm_data.os_type,
             status="creating",
-            proxmox_node=settings.PROXMOX_NODE,
-            storage=settings.PROXMOX_VM_STORAGE,
+            proxmox_node=node_name,
+            storage=storage_name,
         )
 
         session.add(new_vm)
@@ -119,7 +159,6 @@ async def list_vms(
     session: AsyncSession = Depends(get_session),
 ):
     """Get list of VMs for the current user."""
-    # Get all VMs for the user
     result = await session.execute(
         select(VirtualMachine)
         .where(VirtualMachine.user_id == current_user.id)
@@ -140,7 +179,6 @@ async def get_vm(
     session: AsyncSession = Depends(get_session),
 ):
     """Get details of a specific VM."""
-    # Get VM from database
     result = await session.execute(
         select(VirtualMachine).where(VirtualMachine.id == vm_id)
     )
@@ -152,7 +190,6 @@ async def get_vm(
             detail="Không tìm thấy VM",
         )
 
-    # Check if user owns this VM
     if vm.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -193,7 +230,7 @@ async def start_vm(
         )
 
     try:
-        proxmox = await create_proxmox_service(session)
+        proxmox = await create_proxmox_service_for_vm(vm, session)
         await proxmox.start_vm(vm.vmid)
         vm.status = "running"
         await session.commit()
@@ -237,7 +274,7 @@ async def stop_vm(
         )
 
     try:
-        proxmox = await create_proxmox_service(session)
+        proxmox = await create_proxmox_service_for_vm(vm, session)
         await proxmox.stop_vm(vm.vmid)
         vm.status = "stopped"
         await session.commit()
@@ -281,9 +318,8 @@ async def restart_vm(
         )
 
     try:
-        proxmox = await create_proxmox_service(session)
+        proxmox = await create_proxmox_service_for_vm(vm, session)
         await proxmox.stop_vm(vm.vmid)
-        # Wait a bit before starting
         await asyncio.sleep(2)
         await proxmox.start_vm(vm.vmid)
         vm.status = "running"
@@ -328,7 +364,7 @@ async def get_vm_resources(
         )
 
     try:
-        proxmox = await create_proxmox_service(session)
+        proxmox = await create_proxmox_service_for_vm(vm, session)
         resources = await proxmox.get_vm_resources(vm.vmid)
         return VMResourceResponse(**resources)
     except Exception as e:
@@ -363,13 +399,10 @@ async def delete_vm(
         )
 
     try:
-        proxmox = await create_proxmox_service(session)
-        # Stop VM if running
+        proxmox = await create_proxmox_service_for_vm(vm, session)
         if vm.status == "running":
             await proxmox.stop_vm(vm.vmid)
-        # Delete from Proxmox
         await proxmox.delete_vm(vm.vmid)
-        # Delete from database
         await session.delete(vm)
         await session.commit()
     except Exception as e:
@@ -418,12 +451,13 @@ async def clone_vm(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đã vượt giới hạn CPU cores")
 
     try:
-        proxmox = await create_proxmox_service(session)
+        proxmox = await create_proxmox_service_for_vm(vm, session)
         new_vmid = await proxmox.get_next_vmid()
         await proxmox.clone_vm(vm.vmid, new_vmid, clone_data.name)
 
         new_vm = VirtualMachine(
             user_id=current_user.id,
+            proxmox_server_id=vm.proxmox_server_id,
             vmid=new_vmid,
             name=clone_data.name,
             cores=vm.cores,
@@ -470,7 +504,7 @@ async def get_vm_metrics(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền truy cập VM này")
 
     try:
-        proxmox = await create_proxmox_service(session)
+        proxmox = await create_proxmox_service_for_vm(vm, session)
         rrd_data = await proxmox.get_vm_rrddata(vm.vmid, timeframe)
 
         data_points = []
@@ -501,7 +535,6 @@ async def get_vm_console(
     session: AsyncSession = Depends(get_session),
 ):
     """Get VNC console proxy info for noVNC connection."""
-    # Check feature toggle
     feature_enabled = await get_setting(session, "feature_novnc_console")
     if (feature_enabled or "false").lower() != "true":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Chức năng console chưa được bật")
@@ -519,7 +552,7 @@ async def get_vm_console(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VM phải đang chạy để mở console")
 
     try:
-        proxmox = await create_proxmox_service(session)
+        proxmox = await create_proxmox_service_for_vm(vm, session)
         proxy_data = await proxmox.create_vnc_proxy(vm.vmid)
 
         return VMConsoleResponse(
@@ -533,3 +566,41 @@ async def get_vm_console(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Lỗi khi tạo console: {str(e)}",
         )
+
+
+# --- User-facing endpoint: available Proxmox servers ---
+
+@proxmox_servers_public_router.get("/proxmox-servers/available", response_model=List[_ps_schemas.ProxmoxServerResourceResponse])
+async def list_available_proxmox_servers(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """List active Proxmox servers with live resource usage for VM creation."""
+    result = await session.execute(
+        select(ProxmoxServer)
+        .where(ProxmoxServer.is_active == True)
+        .order_by(ProxmoxServer.id)
+    )
+    servers = result.scalars().all()
+
+    responses = []
+    for server in servers:
+        try:
+            proxmox = ProxmoxService.from_server(server)
+            resources = await proxmox.get_node_resources()
+        except Exception:
+            resources = {
+                "cpu_percent": 0,
+                "memory_used_mb": 0,
+                "memory_total_mb": 0,
+                "disk_used_gb": 0,
+                "disk_total_gb": 0,
+            }
+
+        responses.append(_ps_schemas.ProxmoxServerResourceResponse(
+            id=server.id,
+            name=server.name,
+            **resources,
+        ))
+
+    return responses

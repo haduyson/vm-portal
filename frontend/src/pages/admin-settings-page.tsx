@@ -30,9 +30,6 @@ interface AllSettings {
   telegram_bot_token_masked: string;
   telegram_default_chat_id: string | null;
   telegram_source: string;
-  proxmox_host: string | null;
-  proxmox_token_value_masked: string;
-  proxmox_source: string;
 }
 
 export default function AdminSettingsPage() {
@@ -43,9 +40,6 @@ export default function AdminSettingsPage() {
   const [botToken, setBotToken] = useState('');
   const [chatId, setChatId] = useState('');
   const [showToken, setShowToken] = useState(false);
-  const [proxmoxHost, setProxmoxHost] = useState('');
-  const [proxmoxTokenValue, setProxmoxTokenValue] = useState('');
-  const [showProxmoxToken, setShowProxmoxToken] = useState(false);
   const [loading, setLoading] = useState(false);
   const [testLoading, setTestLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -64,7 +58,6 @@ export default function AdminSettingsPage() {
       setFeature2FA(data.feature_2fa_required === 'true');
       setRefreshExpiry(data.refresh_token_expiry_days || '7');
       setChatId(data.telegram_default_chat_id || '');
-      setProxmoxHost(data.proxmox_host || '');
     } catch {
       setErrorMessage('Không thể tải cấu hình');
     }
@@ -88,17 +81,10 @@ export default function AdminSettingsPage() {
       if (chatId.trim()) {
         payload.telegram_default_chat_id = chatId.trim();
       }
-      if (proxmoxHost.trim()) {
-        payload.proxmox_host = proxmoxHost.trim();
-      }
-      if (proxmoxTokenValue.trim()) {
-        payload.proxmox_token_value = proxmoxTokenValue.trim();
-      }
 
       await apiClient.put('/admin/settings', payload);
       setSuccessMessage('Đã lưu cài đặt thành công');
       setBotToken('');
-      setProxmoxTokenValue('');
       await loadSettings();
     } catch (error: any) {
       setErrorMessage(error.response?.data?.detail || 'Không thể lưu cài đặt');
@@ -241,56 +227,6 @@ export default function AdminSettingsPage() {
             >
               {testLoading ? 'Đang gửi...' : 'Gửi tin nhắn thử'}
             </Button>
-          </Stack>
-        </CardContent>
-      </Card>
-
-      {/* Proxmox Settings */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>Cấu hình Proxmox</Typography>
-          <Divider sx={{ mb: 2 }} />
-          <Stack spacing={3}>
-            {settings && (
-              <Box>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Nguồn cấu hình:{' '}
-                  <Chip
-                    label={settings.proxmox_source === 'database' ? 'Cơ sở dữ liệu' : 'Biến môi trường'}
-                    size="small"
-                    color={settings.proxmox_source === 'database' ? 'primary' : 'default'}
-                  />
-                </Typography>
-              </Box>
-            )}
-
-            <TextField
-              label="Host IP / Hostname"
-              value={proxmoxHost}
-              onChange={(e) => setProxmoxHost(e.target.value)}
-              placeholder="Nhập IP hoặc hostname Proxmox"
-              fullWidth
-              helperText="Địa chỉ IP hoặc hostname của máy chủ Proxmox VE"
-            />
-
-            <TextField
-              label="Token Value"
-              type={showProxmoxToken ? 'text' : 'password'}
-              value={proxmoxTokenValue || (settings?.proxmox_token_value_masked ?? '')}
-              onChange={(e) => setProxmoxTokenValue(e.target.value)}
-              placeholder="Nhập token value"
-              fullWidth
-              helperText="Nhập token mới để cập nhật, để trống nếu không muốn thay đổi"
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton onClick={() => setShowProxmoxToken(!showProxmoxToken)} edge="end">
-                      {showProxmoxToken ? <VisibilityOff /> : <Visibility />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
           </Stack>
         </CardContent>
       </Card>

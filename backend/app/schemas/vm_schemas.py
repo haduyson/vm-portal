@@ -9,11 +9,13 @@ class VMCreate(BaseModel):
     memory_mb: int = Field(..., ge=512, le=32768)
     disk_gb: int = Field(..., ge=10, le=500)
     os_type: str = "ubuntu-24.04"
+    server_id: Optional[int] = None
 
 
 class VMResponse(BaseModel):
     id: int
     user_id: int
+    proxmox_server_id: Optional[int] = None
     vmid: int
     name: str
     cores: int

@@ -16,6 +16,11 @@ import {
   Slider,
   Stack,
   Chip,
+  LinearProgress,
+  Radio,
+  RadioGroup,
+  FormControlLabel,
+  CircularProgress,
 } from '@mui/material';
 import apiClient from '../services/api-client';
 
@@ -30,11 +35,24 @@ interface Quota {
   used_cpu_cores: number;
 }
 
+interface ServerResource {
+  id: number;
+  name: string;
+  cpu_percent: number;
+  memory_used_mb: number;
+  memory_total_mb: number;
+  disk_used_gb: number;
+  disk_total_gb: number;
+}
+
 export default function VMCreatePage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [quota, setQuota] = useState<Quota | null>(null);
+  const [servers, setServers] = useState<ServerResource[]>([]);
+  const [serversLoading, setServersLoading] = useState(false);
+  const [selectedServerId, setSelectedServerId] = useState<number | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -46,6 +64,7 @@ export default function VMCreatePage() {
 
   useEffect(() => {
     fetchQuota();
+    fetchServers();
   }, []);
 
   const fetchQuota = async () => {
@@ -54,6 +73,28 @@ export default function VMCreatePage() {
       setQuota(response.data);
     } catch (error) {
       console.error('Error fetching quota:', error);
+    }
+  };
+
+  const fetchServers = async () => {
+    setServersLoading(true);
+    try {
+      const response = await apiClient.get('/proxmox-servers/available');
+      const data: ServerResource[] = response.data;
+      setServers(data);
+      // Pre-select server with most available memory
+      if (data.length > 0) {
+        const best = data.reduce((prev, curr) => {
+          const prevFree = prev.memory_total_mb - prev.memory_used_mb;
+          const currFree = curr.memory_total_mb - curr.memory_used_mb;
+          return currFree > prevFree ? curr : prev;
+        });
+        setSelectedServerId(best.id);
+      }
+    } catch (error) {
+      console.error('Error fetching servers:', error);
+    } finally {
+      setServersLoading(false);
     }
   };
 
@@ -71,14 +112,16 @@ export default function VMCreatePage() {
     setLoading(true);
 
     try {
-      // Convert RAM from GB to MB for backend API
-      const payload = {
+      const payload: Record<string, unknown> = {
         name: formData.name,
         cores: formData.cores,
         memory_mb: formData.ram_gb * 1024,
         disk_gb: formData.disk_gb,
         os_type: formData.os_type,
       };
+      if (selectedServerId) {
+        payload.server_id = selectedServerId;
+      }
       await apiClient.post('/vms/', payload);
       setSnackbar({ open: true, message: 'Đã khởi tạo máy ảo thành công!', severity: 'success' });
       setTimeout(() => navigate('/vms'), 1500);
@@ -89,6 +132,12 @@ export default function VMCreatePage() {
       setLoading(false);
     }
   };
+
+  const memPercent = (s: ServerResource) =>
+    s.memory_total_mb > 0 ? Math.round((s.memory_used_mb / s.memory_total_mb) * 100) : 0;
+
+  const diskPercent = (s: ServerResource) =>
+    s.disk_total_gb > 0 ? Math.round((s.disk_used_gb / s.disk_total_gb) * 100) : 0;
 
   return (
     <Box>
@@ -121,6 +170,87 @@ export default function VMCreatePage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Server Selection */}
+      {serversLoading ? (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, my: 2 }}>
+          <CircularProgress size={20} />
+          <Typography>Đang tải danh sách server...</Typography>
+        </Box>
+      ) : servers.length > 0 ? (
+        <Card sx={{ maxWidth: 600, mt: 2, mb: 2 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Chọn Server</Typography>
+            <RadioGroup
+              value={selectedServerId ?? ''}
+              onChange={(e) => setSelectedServerId(Number(e.target.value))}
+            >
+              {servers.map((server) => (
+                <Card
+                  key={server.id}
+                  variant="outlined"
+                  sx={{
+                    mb: 1,
+                    p: 1.5,
+                    cursor: 'pointer',
+                    border: selectedServerId === server.id ? 2 : 1,
+                    borderColor: selectedServerId === server.id ? 'primary.main' : 'divider',
+                  }}
+                  onClick={() => setSelectedServerId(server.id)}
+                >
+                  <FormControlLabel
+                    value={server.id}
+                    control={<Radio />}
+                    label={
+                      <Box sx={{ width: '100%' }}>
+                        <Typography variant="subtitle1" fontWeight={600}>
+                          {server.name}
+                        </Typography>
+                        <Stack spacing={0.5} sx={{ mt: 1 }}>
+                          <Box>
+                            <Typography variant="body2" color="text.secondary">
+                              CPU: {server.cpu_percent}%
+                            </Typography>
+                            <LinearProgress
+                              variant="determinate"
+                              value={Math.min(server.cpu_percent, 100)}
+                              color={server.cpu_percent > 80 ? 'error' : server.cpu_percent > 60 ? 'warning' : 'primary'}
+                              sx={{ height: 6, borderRadius: 3 }}
+                            />
+                          </Box>
+                          <Box>
+                            <Typography variant="body2" color="text.secondary">
+                              RAM: {Math.round(server.memory_used_mb / 1024)} / {Math.round(server.memory_total_mb / 1024)} GB ({memPercent(server)}%)
+                            </Typography>
+                            <LinearProgress
+                              variant="determinate"
+                              value={Math.min(memPercent(server), 100)}
+                              color={memPercent(server) > 80 ? 'error' : memPercent(server) > 60 ? 'warning' : 'primary'}
+                              sx={{ height: 6, borderRadius: 3 }}
+                            />
+                          </Box>
+                          <Box>
+                            <Typography variant="body2" color="text.secondary">
+                              Disk: {server.disk_used_gb} / {server.disk_total_gb} GB ({diskPercent(server)}%)
+                            </Typography>
+                            <LinearProgress
+                              variant="determinate"
+                              value={Math.min(diskPercent(server), 100)}
+                              color={diskPercent(server) > 80 ? 'error' : diskPercent(server) > 60 ? 'warning' : 'primary'}
+                              sx={{ height: 6, borderRadius: 3 }}
+                            />
+                          </Box>
+                        </Stack>
+                      </Box>
+                    }
+                    sx={{ alignItems: 'flex-start', width: '100%', m: 0 }}
+                  />
+                </Card>
+              ))}
+            </RadioGroup>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card sx={{ maxWidth: 600, mt: 3 }}>
         <CardContent>

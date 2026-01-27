@@ -32,6 +32,7 @@ import {
   Brightness4 as Brightness4Icon,
   Brightness7 as Brightness7Icon,
   Settings as SettingsIcon,
+  Storage as StorageIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../hooks/use-auth-context';
 import { useThemeContext } from '../app';
@@ -76,6 +77,7 @@ export default function AppLayout() {
     { text: 'Quản lý người dùng', icon: <PeopleIcon />, path: '/admin/users' },
     { text: 'Tất cả VM', icon: <DnsIcon />, path: '/admin/vms' },
     { text: 'Nhật ký hoạt động', icon: <HistoryIcon />, path: '/admin/audit-logs' },
+    { text: 'Server Proxmox', icon: <StorageIcon />, path: '/admin/proxmox-servers' },
     { text: 'Cài đặt hệ thống', icon: <SettingsIcon />, path: '/admin/settings' },
   ];
 

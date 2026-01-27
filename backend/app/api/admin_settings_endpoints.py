@@ -10,7 +10,7 @@ from app.schemas.settings_schemas import (
     AllSettingsUpdate,
     PublicFeaturesResponse,
 )
-from app.services.system_settings_service import get_telegram_config, get_proxmox_config, get_setting, set_setting
+from app.services.system_settings_service import get_telegram_config, get_setting, set_setting
 from app.services.telegram_notifier import TelegramNotifier
 from app.api.admin_shared_helpers import log_audit
 
@@ -36,19 +36,12 @@ async def get_all_settings(
 ):
     """Get all system settings (admin only)."""
     telegram_config = await get_telegram_config(session)
-    proxmox_config = await get_proxmox_config(session)
 
     bot_token = telegram_config["bot_token"]
     if bot_token and len(bot_token) > 4:
         masked_token = "*" * (len(bot_token) - 4) + bot_token[-4:]
     else:
         masked_token = "****" if bot_token else ""
-
-    proxmox_token = proxmox_config["token_value"]
-    if proxmox_token and len(proxmox_token) > 4:
-        proxmox_token_masked = "*" * (len(proxmox_token) - 4) + proxmox_token[-4:]
-    else:
-        proxmox_token_masked = "****" if proxmox_token else ""
 
     return AllSettingsResponse(
         feature_novnc_console=await _get_setting_with_default(session, "feature_novnc_console"),
@@ -58,9 +51,6 @@ async def get_all_settings(
         telegram_bot_token_masked=masked_token,
         telegram_default_chat_id=telegram_config["default_chat_id"],
         telegram_source=telegram_config["source"],
-        proxmox_host=proxmox_config["host"],
-        proxmox_token_value_masked=proxmox_token_masked,
-        proxmox_source=proxmox_config["source"],
     )
 
 
@@ -92,14 +82,6 @@ async def update_all_settings(
     if settings_update.telegram_default_chat_id is not None:
         await set_setting(session, "telegram_default_chat_id", settings_update.telegram_default_chat_id)
         changes.append(f"telegram_default_chat_id={settings_update.telegram_default_chat_id}")
-
-    if settings_update.proxmox_host is not None:
-        await set_setting(session, "proxmox_host", settings_update.proxmox_host)
-        changes.append(f"proxmox_host={settings_update.proxmox_host}")
-
-    if settings_update.proxmox_token_value is not None:
-        await set_setting(session, "proxmox_token_value", settings_update.proxmox_token_value)
-        changes.append("Updated proxmox token value")
 
     if changes:
         await log_audit(session, admin.id, "update_settings", "system", None, ", ".join(changes))

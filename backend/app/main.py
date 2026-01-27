@@ -12,6 +12,8 @@ from app.api import (
     admin_audit_router,
     public_settings_router,
     vm_network_router,
+    admin_proxmox_server_router,
+    proxmox_servers_public_router,
 )
 
 
@@ -54,6 +56,8 @@ app.include_router(admin_user_router, prefix="/api")
 app.include_router(admin_vm_router, prefix="/api")
 app.include_router(admin_settings_router, prefix="/api")
 app.include_router(admin_audit_router, prefix="/api")
+app.include_router(admin_proxmox_server_router, prefix="/api")
+app.include_router(proxmox_servers_public_router, prefix="/api")
 
 
 @app.get("/")

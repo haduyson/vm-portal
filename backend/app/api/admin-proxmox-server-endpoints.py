@@ -1,0 +1,217 @@
+from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.security import get_current_admin_user
+from app.database import get_session
+from app.models.user_model import User
+from app.models.proxmox_server_model import ProxmoxServer
+from app.models.virtual_machine_model import VirtualMachine
+import importlib
+schemas = importlib.import_module("app.schemas.proxmox-server-schemas")
+from app.api.admin_shared_helpers import log_audit
+from app.services.proxmox_client import ProxmoxService
+
+router = APIRouter(prefix="/admin/proxmox-servers", tags=["admin-proxmox-servers"])
+
+
+def _mask_token(token: str) -> str:
+    if token and len(token) > 4:
+        return "*" * (len(token) - 4) + token[-4:]
+    return "****" if token else ""
+
+
+def _server_to_response(server: ProxmoxServer) -> schemas.ProxmoxServerResponse:
+    return schemas.ProxmoxServerResponse(
+        id=server.id,
+        name=server.name,
+        host=server.host,
+        port=server.port,
+        user=server.user,
+        token_name=server.token_name,
+        token_value_masked=_mask_token(server.token_value),
+        node=server.node,
+        vm_storage=server.vm_storage,
+        iso_storage=server.iso_storage,
+        is_active=server.is_active,
+        created_at=server.created_at,
+        updated_at=server.updated_at,
+    )
+
+
+@router.get("", response_model=List[schemas.ProxmoxServerResponse])
+async def list_proxmox_servers(
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """List all Proxmox servers."""
+    result = await session.execute(
+        select(ProxmoxServer).order_by(ProxmoxServer.id)
+    )
+    servers = result.scalars().all()
+    return [_server_to_response(s) for s in servers]
+
+
+@router.post("", response_model=schemas.ProxmoxServerResponse, status_code=status.HTTP_201_CREATED)
+async def create_proxmox_server(
+    data: schemas.ProxmoxServerCreate,
+    admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Add a new Proxmox server."""
+    # Check unique name
+    existing = await session.execute(
+        select(ProxmoxServer).where(ProxmoxServer.name == data.name)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Server với tên '{data.name}' đã tồn tại",
+        )
+
+    server = ProxmoxServer(**data.model_dump())
+    session.add(server)
+    await session.commit()
+    await session.refresh(server)
+
+    await log_audit(
+        session, admin.id, "create_proxmox_server", "proxmox_server",
+        server.id, f"Added server: {server.name} ({server.host})",
+    )
+
+    return _server_to_response(server)
+
+
+@router.get("/{server_id}", response_model=schemas.ProxmoxServerResponse)
+async def get_proxmox_server(
+    server_id: int,
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get a Proxmox server by ID."""
+    result = await session.execute(
+        select(ProxmoxServer).where(ProxmoxServer.id == server_id)
+    )
+    server = result.scalar_one_or_none()
+    if not server:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy server",
+        )
+    return _server_to_response(server)
+
+
+@router.put("/{server_id}", response_model=schemas.ProxmoxServerResponse)
+async def update_proxmox_server(
+    server_id: int,
+    data: schemas.ProxmoxServerUpdate,
+    admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Update a Proxmox server."""
+    result = await session.execute(
+        select(ProxmoxServer).where(ProxmoxServer.id == server_id)
+    )
+    server = result.scalar_one_or_none()
+    if not server:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy server",
+        )
+
+    update_data = data.model_dump(exclude_unset=True)
+
+    # Check unique name if changing
+    if "name" in update_data and update_data["name"] != server.name:
+        existing = await session.execute(
+            select(ProxmoxServer).where(ProxmoxServer.name == update_data["name"])
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Server với tên '{update_data['name']}' đã tồn tại",
+            )
+
+    for key, value in update_data.items():
+        setattr(server, key, value)
+
+    await session.commit()
+    await session.refresh(server)
+
+    await log_audit(
+        session, admin.id, "update_proxmox_server", "proxmox_server",
+        server.id, f"Updated server: {server.name}",
+    )
+
+    return _server_to_response(server)
+
+
+@router.delete("/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_proxmox_server(
+    server_id: int,
+    admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete a Proxmox server (only if no VMs are linked)."""
+    result = await session.execute(
+        select(ProxmoxServer).where(ProxmoxServer.id == server_id)
+    )
+    server = result.scalar_one_or_none()
+    if not server:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy server",
+        )
+
+    # Check if any VMs use this server
+    vm_count_result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.proxmox_server_id == server_id)
+    )
+    if vm_count_result.scalars().first():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Không thể xóa server đang có VM liên kết",
+        )
+
+    server_name = server.name
+    await session.delete(server)
+    await session.commit()
+
+    await log_audit(
+        session, admin.id, "delete_proxmox_server", "proxmox_server",
+        server_id, f"Deleted server: {server_name}",
+    )
+
+
+@router.get("/{server_id}/resources", response_model=schemas.ProxmoxServerResourceResponse)
+async def get_proxmox_server_resources(
+    server_id: int,
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get live resource usage from a Proxmox server."""
+    result = await session.execute(
+        select(ProxmoxServer).where(ProxmoxServer.id == server_id)
+    )
+    server = result.scalar_one_or_none()
+    if not server:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy server",
+        )
+
+    try:
+        proxmox = ProxmoxService.from_server(server)
+        resources = await proxmox.get_node_resources()
+        return schemas.ProxmoxServerResourceResponse(
+            id=server.id,
+            name=server.name,
+            **resources,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi lấy tài nguyên server: {str(e)}",
+        )
