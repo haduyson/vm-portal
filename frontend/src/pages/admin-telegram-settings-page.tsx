@@ -31,7 +31,6 @@ export default function AdminTelegramSettingsPage() {
   const [chatId, setChatId] = useState('');
   const [currentSettings, setCurrentSettings] = useState<TelegramSettings | null>(null);
   const [showToken, setShowToken] = useState(false);
-  const [showCurrentToken, setShowCurrentToken] = useState(false);
   const [loading, setLoading] = useState(false);
   const [testLoading, setTestLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -132,31 +131,12 @@ export default function AdminTelegramSettingsPage() {
               </Box>
             )}
 
-            {currentSettings?.bot_token && (
-              <TextField
-                label="Bot Token hiện tại"
-                type={showCurrentToken ? 'text' : 'password'}
-                value={currentSettings.bot_token}
-                fullWidth
-                InputProps={{
-                  readOnly: true,
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton onClick={() => setShowCurrentToken(!showCurrentToken)} edge="end">
-                        {showCurrentToken ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            )}
-
             <TextField
-              label="Bot Token mới"
+              label="Bot Token"
               type={showToken ? 'text' : 'password'}
-              value={botToken}
+              value={botToken || currentSettings?.bot_token || ''}
               onChange={(e) => setBotToken(e.target.value)}
-              placeholder="Nhập bot token mới để cập nhật"
+              placeholder="Nhập bot token"
               fullWidth
               helperText="Nhập token mới để cập nhật, để trống nếu không muốn thay đổi"
               InputProps={{
