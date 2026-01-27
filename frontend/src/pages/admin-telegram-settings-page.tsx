@@ -17,9 +17,7 @@ import {
   VisibilityOff,
   Send as SendIcon,
 } from '@mui/icons-material';
-import axios from 'axios';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import apiClient from '../services/api-client';
 
 interface TelegramSettings {
   bot_token_masked: string;
@@ -43,14 +41,10 @@ export default function AdminTelegramSettingsPage() {
 
   const loadSettings = async () => {
     try {
-      const token = localStorage.getItem('access_token');
-      const response = await axios.get(`${API_URL}/api/admin/settings/telegram`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await apiClient.get('/admin/settings/telegram');
       setCurrentSettings(response.data);
       setChatId(response.data.default_chat_id || '');
-    } catch (error) {
-      console.error('Failed to load settings:', error);
+    } catch {
       setErrorMessage('Không thể tải cấu hình');
     }
   };
@@ -61,15 +55,9 @@ export default function AdminTelegramSettingsPage() {
     setErrorMessage('');
 
     try {
-      const token = localStorage.getItem('access_token');
       const payload: { bot_token?: string; default_chat_id?: string } = {};
-
-      if (botToken.trim()) {
-        payload.bot_token = botToken.trim();
-      }
-      if (chatId.trim()) {
-        payload.default_chat_id = chatId.trim();
-      }
+      if (botToken.trim()) payload.bot_token = botToken.trim();
+      if (chatId.trim()) payload.default_chat_id = chatId.trim();
 
       if (Object.keys(payload).length === 0) {
         setErrorMessage('Vui lòng nhập ít nhất một giá trị để cập nhật');
@@ -77,18 +65,12 @@ export default function AdminTelegramSettingsPage() {
         return;
       }
 
-      await axios.put(`${API_URL}/api/admin/settings/telegram`, payload, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
+      await apiClient.put('/admin/settings/telegram', payload);
       setSuccessMessage('Đã lưu cấu hình thành công');
       setBotToken('');
       await loadSettings();
     } catch (error: any) {
-      console.error('Failed to save settings:', error);
-      setErrorMessage(
-        error.response?.data?.detail || 'Không thể lưu cấu hình'
-      );
+      setErrorMessage(error.response?.data?.detail || 'Không thể lưu cấu hình');
     } finally {
       setLoading(false);
     }
@@ -100,20 +82,10 @@ export default function AdminTelegramSettingsPage() {
     setErrorMessage('');
 
     try {
-      const token = localStorage.getItem('access_token');
-      const response = await axios.post(
-        `${API_URL}/api/admin/settings/telegram/test`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const response = await apiClient.post('/admin/settings/telegram/test', {});
       setSuccessMessage(response.data.message || 'Đã gửi tin nhắn thử thành công');
     } catch (error: any) {
-      console.error('Failed to test settings:', error);
-      setErrorMessage(
-        error.response?.data?.detail || 'Không thể gửi tin nhắn thử'
-      );
+      setErrorMessage(error.response?.data?.detail || 'Không thể gửi tin nhắn thử');
     } finally {
       setTestLoading(false);
     }
@@ -145,19 +117,14 @@ export default function AdminTelegramSettingsPage() {
                 <Typography variant="body2" color="text.secondary" gutterBottom>
                   Nguồn cấu hình hiện tại:{' '}
                   <Chip
-                    label={
-                      currentSettings.source === 'database'
-                        ? 'Cơ sở dữ liệu'
-                        : 'Biến môi trường'
-                    }
+                    label={currentSettings.source === 'database' ? 'Cơ sở dữ liệu' : 'Biến môi trường'}
                     size="small"
                     color={currentSettings.source === 'database' ? 'primary' : 'default'}
                   />
                 </Typography>
                 {currentSettings.source === 'environment' && (
                   <Alert severity="info" sx={{ mt: 1 }}>
-                    Hiện đang sử dụng cấu hình từ biến môi trường. Cập nhật ở đây để
-                    lưu vào cơ sở dữ liệu.
+                    Hiện đang sử dụng cấu hình từ biến môi trường. Cập nhật ở đây để lưu vào cơ sở dữ liệu.
                   </Alert>
                 )}
               </Box>
@@ -178,10 +145,7 @@ export default function AdminTelegramSettingsPage() {
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end">
-                    <IconButton
-                      onClick={() => setShowToken(!showToken)}
-                      edge="end"
-                    >
+                    <IconButton onClick={() => setShowToken(!showToken)} edge="end">
                       {showToken ? <VisibilityOff /> : <Visibility />}
                     </IconButton>
                   </InputAdornment>
@@ -199,14 +163,9 @@ export default function AdminTelegramSettingsPage() {
             />
 
             <Stack direction="row" spacing={2}>
-              <Button
-                variant="contained"
-                onClick={handleSave}
-                disabled={loading}
-              >
+              <Button variant="contained" onClick={handleSave} disabled={loading}>
                 {loading ? 'Đang lưu...' : 'Lưu'}
               </Button>
-
               <Button
                 variant="outlined"
                 startIcon={<SendIcon />}
@@ -229,16 +188,7 @@ export default function AdminTelegramSettingsPage() {
             <ol>
               <li>Tạo bot mới trên Telegram bằng @BotFather</li>
               <li>Sao chép Bot Token và dán vào ô trên</li>
-              <li>Lấy Chat ID bằng cách:
-                <ul>
-                  <li>Gửi tin nhắn cho bot của bạn</li>
-                  <li>
-                    Truy cập:{' '}
-                    <code>https://api.telegram.org/bot{'<YOUR_BOT_TOKEN>'}/getUpdates</code>
-                  </li>
-                  <li>Tìm giá trị "id" trong "chat" object</li>
-                </ul>
-              </li>
+              <li>Lấy Chat ID bằng cách gửi tin nhắn cho bot, sau đó truy cập API getUpdates</li>
               <li>Nhập Chat ID vào ô trên</li>
               <li>Nhấn "Lưu" để lưu cấu hình</li>
               <li>Nhấn "Gửi tin nhắn thử" để kiểm tra</li>
