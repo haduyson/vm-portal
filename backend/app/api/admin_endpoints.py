@@ -8,15 +8,91 @@ from app.core.security import get_current_admin_user
 from app.database import get_session
 from app.models.user_model import User
 from app.models.virtual_machine_model import VirtualMachine
+from app.models.audit_log_model import AuditLog
+from app.schemas.audit_log_schemas import AuditLogResponse
 from app.schemas.admin_schemas import (
     AdminStatsResponse,
+    AdminUserCreate,
     AdminUserResponse,
     AdminUserUpdate,
     AdminVMResponse,
 )
+from app.core.security import hash_password
 from app.services.proxmox_client import ProxmoxService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+async def log_audit(
+    session: AsyncSession,
+    admin_id: int,
+    action: str,
+    target_type: str,
+    target_id: int = None,
+    details: str = None,
+):
+    """Helper function to log admin actions."""
+    audit_log = AuditLog(
+        admin_id=admin_id,
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
+        details=details,
+    )
+    session.add(audit_log)
+    await session.commit()
+
+
+@router.post("/users", response_model=AdminUserResponse, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    user_data: AdminUserCreate,
+    admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Create a new user (admin only)."""
+    # Check if username already exists
+    result = await session.execute(
+        select(User).where(User.username == user_data.username)
+    )
+    existing_user = result.scalar_one_or_none()
+
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tên đăng nhập đã tồn tại",
+        )
+
+    # Create new user
+    hashed_password = hash_password(user_data.password)
+    new_user = User(
+        username=user_data.username,
+        hashed_password=hashed_password,
+        telegram_chat_id=user_data.telegram_chat_id,
+        is_admin=user_data.is_admin,
+    )
+
+    session.add(new_user)
+    await session.commit()
+    await session.refresh(new_user)
+
+    # Log audit
+    await log_audit(
+        session,
+        admin.id,
+        "create_user",
+        "user",
+        new_user.id,
+        f"Created user: {new_user.username} (admin: {new_user.is_admin})",
+    )
+
+    return AdminUserResponse(
+        id=new_user.id,
+        username=new_user.username,
+        is_admin=new_user.is_admin,
+        telegram_chat_id=new_user.telegram_chat_id,
+        created_at=new_user.created_at,
+        vm_count=0,
+    )
 
 
 @router.get("/users", response_model=List[AdminUserResponse])
@@ -83,7 +159,18 @@ async def update_user(
         )
 
     if user_update.is_admin is not None:
+        old_admin_status = user.is_admin
         user.is_admin = user_update.is_admin
+        # Log admin toggle
+        if old_admin_status != user_update.is_admin:
+            await log_audit(
+                session,
+                admin.id,
+                "toggle_admin",
+                "user",
+                user.id,
+                f"Changed admin status of {user.username} from {old_admin_status} to {user_update.is_admin}",
+            )
     if user_update.telegram_chat_id is not None:
         user.telegram_chat_id = user_update.telegram_chat_id
 
@@ -129,6 +216,16 @@ async def delete_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Không thể xóa chính mình",
         )
+
+    # Log audit
+    await log_audit(
+        session,
+        admin.id,
+        "delete_user",
+        "user",
+        user.id,
+        f"Deleted user: {user.username}",
+    )
 
     # Delete user's VMs first
     await session.execute(
@@ -244,6 +341,16 @@ async def admin_start_vm(
         await session.commit()
         await session.refresh(vm)
 
+        # Log audit
+        await log_audit(
+            session,
+            _admin.id,
+            "start_vm",
+            "vm",
+            vm.id,
+            f"Started VM: {vm.name} (VMID: {vm.vmid})",
+        )
+
         return AdminVMResponse(
             id=vm.id,
             user_id=vm.user_id,
@@ -306,6 +413,16 @@ async def admin_stop_vm(
         await session.commit()
         await session.refresh(vm)
 
+        # Log audit
+        await log_audit(
+            session,
+            _admin.id,
+            "stop_vm",
+            "vm",
+            vm.id,
+            f"Stopped VM: {vm.name} (VMID: {vm.vmid})",
+        )
+
         return AdminVMResponse(
             id=vm.id,
             user_id=vm.user_id,
@@ -352,6 +469,16 @@ async def admin_delete_vm(
         )
 
     try:
+        # Log audit
+        await log_audit(
+            session,
+            _admin.id,
+            "delete_vm",
+            "vm",
+            vm.id,
+            f"Deleted VM: {vm.name} (VMID: {vm.vmid})",
+        )
+
         # Delete from Proxmox first
         proxmox = ProxmoxService()
         await proxmox.delete_vm(vm.vmid)
@@ -364,3 +491,31 @@ async def admin_delete_vm(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Lỗi khi xóa VM: {str(e)}",
         )
+
+
+@router.get("/audit-logs", response_model=List[AuditLogResponse])
+async def get_audit_logs(
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get audit logs (admin only)."""
+    result = await session.execute(
+        select(AuditLog, User.username)
+        .join(User, AuditLog.admin_id == User.id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(100)
+    )
+
+    rows = result.all()
+    return [
+        AuditLogResponse(
+            id=log.id,
+            admin_username=username,
+            action=log.action,
+            target_type=log.target_type,
+            target_id=log.target_id,
+            details=log.details,
+            created_at=log.created_at,
+        )
+        for log, username in rows
+    ]

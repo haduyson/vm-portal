@@ -37,3 +37,11 @@ class VMResponse(BaseModel):
 class VMListResponse(BaseModel):
     total: int
     vms: List[VMResponse]
+
+
+class VMResourceResponse(BaseModel):
+    cpu_percent: float
+    memory_used_mb: float
+    memory_total_mb: float
+    disk_used_gb: float
+    disk_total_gb: float

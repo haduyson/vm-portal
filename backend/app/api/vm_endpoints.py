@@ -6,7 +6,7 @@ from app.core.security import get_current_user
 from app.database import get_session
 from app.models.user_model import User
 from app.models.virtual_machine_model import VirtualMachine
-from app.schemas.vm_schemas import VMCreate, VMResponse, VMListResponse
+from app.schemas.vm_schemas import VMCreate, VMResponse, VMListResponse, VMResourceResponse
 from app.services.vm_provisioning_service import VMProvisioningService
 from app.services.proxmox_client import ProxmoxService
 from app.config import settings
@@ -244,4 +244,45 @@ async def restart_vm(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Lỗi khi khởi động lại VM: {str(e)}",
+        )
+
+
+@router.get("/{vm_id}/resources", response_model=VMResourceResponse)
+async def get_vm_resources(
+    vm_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get VM resource usage (owner or admin only)."""
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+
+    if not vm:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy VM",
+        )
+
+    if vm.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có quyền truy cập VM này",
+        )
+
+    if vm.status != "running":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="VM phải đang chạy để xem tài nguyên",
+        )
+
+    try:
+        proxmox = ProxmoxService()
+        resources = await proxmox.get_vm_resources(vm.vmid)
+        return VMResourceResponse(**resources)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi lấy thông tin tài nguyên: {str(e)}",
         )

@@ -19,8 +19,11 @@ import {
   Button,
   Alert,
   Chip,
+  TextField,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
-import { Delete as DeleteIcon } from '@mui/icons-material';
+import { Delete as DeleteIcon, Add as AddIcon } from '@mui/icons-material';
 import apiClient from '../services/api-client';
 
 interface AdminUser {
@@ -37,6 +40,14 @@ export default function AdminUserManagementPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+  const [createDialog, setCreateDialog] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [newUser, setNewUser] = useState({
+    username: '',
+    password: '',
+    telegram_chat_id: '',
+    is_admin: false,
+  });
 
   const fetchUsers = async () => {
     try {
@@ -84,6 +95,30 @@ export default function AdminUserManagementPage() {
     }
   };
 
+  const handleCreateUser = async () => {
+    try {
+      setError('');
+      const payload: any = {
+        username: newUser.username,
+        password: newUser.password,
+        is_admin: newUser.is_admin,
+      };
+      if (newUser.telegram_chat_id) {
+        payload.telegram_chat_id = newUser.telegram_chat_id;
+      }
+      const response = await apiClient.post('/admin/users', payload);
+      setUsers((prev) => [response.data, ...prev]);
+      setCreateDialog(false);
+      setNewUser({ username: '', password: '', telegram_chat_id: '', is_admin: false });
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Không thể tạo người dùng');
+    }
+  };
+
+  const filteredUsers = users.filter(user =>
+    user.username.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   if (loading) {
     return (
       <Box>
@@ -95,9 +130,18 @@ export default function AdminUserManagementPage() {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>
-        Quản Lý Người Dùng
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h4">
+          Quản Lý Người Dùng
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => setCreateDialog(true)}
+        >
+          Thêm người dùng
+        </Button>
+      </Box>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
@@ -105,7 +149,17 @@ export default function AdminUserManagementPage() {
         </Alert>
       )}
 
-      <TableContainer component={Paper} sx={{ mt: 2 }}>
+      <TextField
+        label="Tìm kiếm theo tên đăng nhập"
+        variant="outlined"
+        size="small"
+        fullWidth
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        sx={{ mb: 2 }}
+      />
+
+      <TableContainer component={Paper}>
         <Table>
           <TableHead>
             <TableRow>
@@ -119,7 +173,7 @@ export default function AdminUserManagementPage() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {users.map((user) => (
+            {filteredUsers.map((user) => (
               <TableRow key={user.id} hover>
                 <TableCell>{user.id}</TableCell>
                 <TableCell>
@@ -172,6 +226,57 @@ export default function AdminUserManagementPage() {
           <Button onClick={() => setDeleteTarget(null)}>Hủy</Button>
           <Button onClick={handleDelete} color="error" variant="contained">
             Xóa
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={createDialog} onClose={() => setCreateDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Tạo người dùng mới</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Tên đăng nhập"
+            type="text"
+            fullWidth
+            value={newUser.username}
+            onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+          />
+          <TextField
+            margin="dense"
+            label="Mật khẩu"
+            type="password"
+            fullWidth
+            value={newUser.password}
+            onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+            helperText="Tối thiểu 8 ký tự, có chữ hoa, chữ thường và số"
+          />
+          <TextField
+            margin="dense"
+            label="Telegram Chat ID (tùy chọn)"
+            type="text"
+            fullWidth
+            value={newUser.telegram_chat_id}
+            onChange={(e) => setNewUser({ ...newUser, telegram_chat_id: e.target.value })}
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={newUser.is_admin}
+                onChange={(e) => setNewUser({ ...newUser, is_admin: e.target.checked })}
+              />
+            }
+            label="Quyền quản trị"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateDialog(false)}>Hủy</Button>
+          <Button
+            onClick={handleCreateUser}
+            variant="contained"
+            disabled={!newUser.username || !newUser.password}
+          >
+            Tạo
           </Button>
         </DialogActions>
       </Dialog>

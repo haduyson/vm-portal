@@ -28,6 +28,7 @@ import {
   People as PeopleIcon,
   Dns as DnsIcon,
   Person as PersonIcon,
+  History as HistoryIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../hooks/use-auth-context';
 
@@ -69,6 +70,7 @@ export default function AppLayout() {
   const adminMenuItems = [
     { text: 'Quản lý người dùng', icon: <PeopleIcon />, path: '/admin/users' },
     { text: 'Tất cả VM', icon: <DnsIcon />, path: '/admin/vms' },
+    { text: 'Nhật ký hoạt động', icon: <HistoryIcon />, path: '/admin/audit-logs' },
   ];
 
   const drawer = (

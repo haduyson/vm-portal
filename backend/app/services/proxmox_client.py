@@ -108,3 +108,41 @@ class ProxmoxService:
             return self.proxmox.nodes(self.node).qemu(vmid).delete()
 
         return await asyncio.to_thread(_delete_vm)
+
+    async def get_vm_resources(self, vmid: int) -> Dict:
+        """Get VM resource usage (CPU, memory, disk)."""
+        def _get_resources():
+            try:
+                status = self.proxmox.nodes(self.node).qemu(vmid).status.current.get()
+
+                # Calculate percentages
+                cpu_percent = round(status.get('cpu', 0) * 100, 2)
+
+                mem_used = status.get('mem', 0)
+                mem_max = status.get('maxmem', 1)
+                memory_used_mb = round(mem_used / (1024 * 1024), 2)
+                memory_total_mb = round(mem_max / (1024 * 1024), 2)
+
+                disk_used = status.get('disk', 0)
+                disk_max = status.get('maxdisk', 1)
+                disk_used_gb = round(disk_used / (1024 * 1024 * 1024), 2)
+                disk_total_gb = round(disk_max / (1024 * 1024 * 1024), 2)
+
+                return {
+                    'cpu_percent': cpu_percent,
+                    'memory_used_mb': memory_used_mb,
+                    'memory_total_mb': memory_total_mb,
+                    'disk_used_gb': disk_used_gb,
+                    'disk_total_gb': disk_total_gb,
+                }
+            except Exception as e:
+                return {
+                    'error': str(e),
+                    'cpu_percent': 0,
+                    'memory_used_mb': 0,
+                    'memory_total_mb': 0,
+                    'disk_used_gb': 0,
+                    'disk_total_gb': 0,
+                }
+
+        return await asyncio.to_thread(_get_resources)

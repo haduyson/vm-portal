@@ -9,8 +9,10 @@ import LoginPage from './pages/login-page';
 import DashboardPage from './pages/dashboard-page';
 import VMCreatePage from './pages/vm-create-page';
 import VMListPage from './pages/vm-list-page';
+import VMDetailPage from './pages/vm-detail-page';
 import AdminUserManagementPage from './pages/admin-user-management-page';
 import AdminVmOverviewPage from './pages/admin-vm-overview-page';
+import AdminAuditLogPage from './pages/admin-audit-log-page';
 import UserProfileSettingsPage from './pages/user-profile-settings-page';
 
 const theme = createTheme({
@@ -62,11 +64,13 @@ export default function App() {
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/vms/create" element={<VMCreatePage />} />
+                <Route path="/vms/:id" element={<VMDetailPage />} />
                 <Route path="/vms" element={<VMListPage />} />
                 <Route path="/profile" element={<UserProfileSettingsPage />} />
                 <Route element={<AdminRoute />}>
                   <Route path="/admin/users" element={<AdminUserManagementPage />} />
                   <Route path="/admin/vms" element={<AdminVmOverviewPage />} />
+                  <Route path="/admin/audit-logs" element={<AdminAuditLogPage />} />
                 </Route>
               </Route>
             </Route>

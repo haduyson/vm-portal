@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   Box,
   Paper,
@@ -22,6 +22,11 @@ import {
   DialogActions,
   Button,
   Snackbar,
+  TextField,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   PlayArrow as PlayArrowIcon,
@@ -61,6 +66,9 @@ export default function AdminVmOverviewPage() {
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; vmId: number | null; vmName: string }>({ open: false, vmId: null, vmName: '' });
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const vmsRef = useRef<AdminVM[]>([]);
 
   const fetchData = async () => {
     try {
@@ -69,6 +77,7 @@ export default function AdminVmOverviewPage() {
         apiClient.get('/admin/stats'),
       ]);
       setVms(vmsRes.data);
+      vmsRef.current = vmsRes.data;
       setStats(statsRes.data);
       setError('');
     } catch {
@@ -78,8 +87,26 @@ export default function AdminVmOverviewPage() {
     }
   };
 
+  const filteredVMs = vms.filter(vm => {
+    const matchesSearch =
+      vm.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      vm.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (vm.ip_address && vm.ip_address.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesStatus = statusFilter === 'all' || vm.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
   useEffect(() => {
     fetchData();
+
+    // Auto-refresh every 10 seconds if there are VMs in creating/installing status
+    const interval = setInterval(() => {
+      if (vmsRef.current.some(vm => ['creating', 'installing'].includes(vm.status))) {
+        fetchData();
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const handleVMAction = async (vmId: number, action: 'start' | 'stop') => {
@@ -172,6 +199,32 @@ export default function AdminVmOverviewPage() {
         </Stack>
       )}
 
+      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+        <TextField
+          label="Tìm kiếm theo tên VM, người dùng hoặc IP"
+          variant="outlined"
+          size="small"
+          fullWidth
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel>Trạng thái</InputLabel>
+          <Select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            label="Trạng thái"
+          >
+            <MenuItem value="all">Tất cả</MenuItem>
+            <MenuItem value="running">Đang chạy</MenuItem>
+            <MenuItem value="stopped">Đã dừng</MenuItem>
+            <MenuItem value="creating">Đang tạo</MenuItem>
+            <MenuItem value="installing">Đang cài đặt</MenuItem>
+            <MenuItem value="error">Lỗi</MenuItem>
+          </Select>
+        </FormControl>
+      </Box>
+
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
@@ -189,7 +242,7 @@ export default function AdminVmOverviewPage() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {vms.map((vm) => (
+            {filteredVMs.map((vm) => (
               <TableRow key={vm.id} hover>
                 <TableCell>{vm.vmid}</TableCell>
                 <TableCell>{vm.name}</TableCell>
@@ -248,6 +301,13 @@ export default function AdminVmOverviewPage() {
                 </TableCell>
               </TableRow>
             ))}
+            {filteredVMs.length === 0 && vms.length > 0 && (
+              <TableRow>
+                <TableCell colSpan={10} align="center">
+                  Không tìm thấy VM nào phù hợp.
+                </TableCell>
+              </TableRow>
+            )}
             {vms.length === 0 && (
               <TableRow>
                 <TableCell colSpan={10} align="center">

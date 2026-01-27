@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   Box,
   Paper,
@@ -14,6 +14,7 @@ import {
   Tooltip,
   Alert,
   Snackbar,
+  Link,
 } from '@mui/material';
 import {
   AddCircle as AddCircleIcon,
@@ -42,11 +43,14 @@ export default function VMListPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const vmsRef = useRef<VM[]>([]);
 
   const fetchVMs = async () => {
     try {
       const response = await apiClient.get('/vms/');
-      setVms(response.data.vms || []);
+      const fetchedVms = response.data.vms || [];
+      setVms(fetchedVms);
+      vmsRef.current = fetchedVms;
     } catch (error) {
       console.error('Error fetching VMs:', error);
     } finally {
@@ -72,13 +76,13 @@ export default function VMListPage() {
 
     // Auto-refresh every 10 seconds if there are VMs in creating/installing status
     const interval = setInterval(() => {
-      if (vms.some(vm => ['creating', 'installing'].includes(vm.status))) {
+      if (vmsRef.current.some(vm => ['creating', 'installing'].includes(vm.status))) {
         fetchVMs();
       }
     }, 10000);
 
     return () => clearInterval(interval);
-  }, [vms]);
+  }, []);
 
   if (loading) {
     return (
@@ -134,7 +138,16 @@ export default function VMListPage() {
           <TableBody>
             {vms.map((vm) => (
               <TableRow key={vm.id} hover>
-                <TableCell>{vm.name}</TableCell>
+                <TableCell>
+                  <Link
+                    component="button"
+                    variant="body1"
+                    onClick={() => navigate(`/vms/${vm.id}`)}
+                    sx={{ textAlign: 'left', cursor: 'pointer' }}
+                  >
+                    {vm.name}
+                  </Link>
+                </TableCell>
                 <TableCell>
                   <VMStatusChip status={vm.status} />
                 </TableCell>
