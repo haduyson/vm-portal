@@ -31,7 +31,7 @@ import {
   History as HistoryIcon,
   Brightness4 as Brightness4Icon,
   Brightness7 as Brightness7Icon,
-  Telegram as TelegramIcon,
+  Settings as SettingsIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../hooks/use-auth-context';
 import { useThemeContext } from '../app';
@@ -59,8 +59,8 @@ export default function AppLayout() {
     setAnchorEl(null);
   };
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate('/login');
     handleMenuClose();
   };
@@ -76,7 +76,7 @@ export default function AppLayout() {
     { text: 'Quản lý người dùng', icon: <PeopleIcon />, path: '/admin/users' },
     { text: 'Tất cả VM', icon: <DnsIcon />, path: '/admin/vms' },
     { text: 'Nhật ký hoạt động', icon: <HistoryIcon />, path: '/admin/audit-logs' },
-    { text: 'Cấu hình Telegram', icon: <TelegramIcon />, path: '/admin/telegram' },
+    { text: 'Cài đặt hệ thống', icon: <SettingsIcon />, path: '/admin/settings' },
   ];
 
   const drawer = (

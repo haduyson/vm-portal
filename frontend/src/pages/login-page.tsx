@@ -23,12 +23,20 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // 2FA state
+  const [needs2FA, setNeeds2FA] = useState(false);
+  const [partialToken, setPartialToken] = useState('');
+  const [totpCode, setTotpCode] = useState('');
+
+  // Forgot password state
   const [forgotPasswordOpen, setForgotPasswordOpen] = useState(false);
   const [forgotUsername, setForgotUsername] = useState('');
   const [forgotSuccess, setForgotSuccess] = useState('');
   const [forgotError, setForgotError] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
-  const { login } = useAuth();
+
+  const { login, complete2FA } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: FormEvent) => {
@@ -37,10 +45,30 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await login(username, password);
-      navigate('/dashboard');
-    } catch (err) {
+      const result = await login(username, password);
+      if (result.requires2FA && result.partialToken) {
+        setPartialToken(result.partialToken);
+        setNeeds2FA(true);
+      } else {
+        navigate('/dashboard');
+      }
+    } catch {
       setError('Tên đăng nhập hoặc mật khẩu không đúng');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handle2FASubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      await complete2FA(partialToken, totpCode);
+      navigate('/dashboard');
+    } catch {
+      setError('Mã xác thực không đúng hoặc đã hết hạn');
     } finally {
       setLoading(false);
     }
@@ -86,51 +114,97 @@ export default function LoginPage() {
               {error}
             </Alert>
           )}
-          <Box component="form" onSubmit={handleSubmit} noValidate>
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              id="username"
-              label="Tên đăng nhập"
-              name="username"
-              autoComplete="username"
-              autoFocus
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              name="password"
-              label="Mật khẩu"
-              type="password"
-              id="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <Button
-              type="submit"
-              fullWidth
-              variant="contained"
-              sx={{ mt: 3, mb: 2 }}
-              disabled={loading}
-            >
-              {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
-            </Button>
-            <Box sx={{ textAlign: 'center' }}>
-              <Link
-                component="button"
-                variant="body2"
-                onClick={() => setForgotPasswordOpen(true)}
-                sx={{ cursor: 'pointer' }}
+
+          {!needs2FA ? (
+            <Box component="form" onSubmit={handleSubmit} noValidate>
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                id="username"
+                label="Tên đăng nhập"
+                name="username"
+                autoComplete="username"
+                autoFocus
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                name="password"
+                label="Mật khẩu"
+                type="password"
+                id="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                sx={{ mt: 3, mb: 2 }}
+                disabled={loading}
               >
-                Quên mật khẩu?
-              </Link>
+                {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
+              </Button>
+              <Box sx={{ textAlign: 'center' }}>
+                <Link
+                  component="button"
+                  variant="body2"
+                  onClick={() => setForgotPasswordOpen(true)}
+                  sx={{ cursor: 'pointer' }}
+                >
+                  Quên mật khẩu?
+                </Link>
+              </Box>
             </Box>
-          </Box>
+          ) : (
+            <Box component="form" onSubmit={handle2FASubmit} noValidate>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Tài khoản này đã bật xác thực hai yếu tố. Vui lòng nhập mã từ ứng dụng xác thực.
+              </Alert>
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                id="totp-code"
+                label="Mã xác thực (6 số)"
+                name="totp_code"
+                autoComplete="one-time-code"
+                autoFocus
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                inputProps={{ maxLength: 6, inputMode: 'numeric' }}
+              />
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                sx={{ mt: 3, mb: 2 }}
+                disabled={loading || totpCode.length !== 6}
+              >
+                {loading ? 'Đang xác thực...' : 'Xác nhận'}
+              </Button>
+              <Box sx={{ textAlign: 'center' }}>
+                <Link
+                  component="button"
+                  variant="body2"
+                  onClick={() => {
+                    setNeeds2FA(false);
+                    setTotpCode('');
+                    setPartialToken('');
+                    setError('');
+                  }}
+                  sx={{ cursor: 'pointer' }}
+                >
+                  Quay lại đăng nhập
+                </Link>
+              </Box>
+            </Box>
+          )}
         </CardContent>
       </Card>
 

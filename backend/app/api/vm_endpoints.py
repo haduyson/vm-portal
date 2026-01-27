@@ -6,7 +6,11 @@ from app.core.security import get_current_user
 from app.database import get_session
 from app.models.user_model import User
 from app.models.virtual_machine_model import VirtualMachine
-from app.schemas.vm_schemas import VMCreate, VMResponse, VMListResponse, VMResourceResponse
+from app.schemas.vm_schemas import (
+    VMCreate, VMResponse, VMListResponse, VMResourceResponse,
+    VMCloneRequest, VMMetricsDataPoint, VMMetricsResponse, VMConsoleResponse,
+)
+from app.services.system_settings_service import get_setting
 from app.services.vm_provisioning_service import VMProvisioningService
 from app.services.proxmox_client import ProxmoxService
 from app.config import settings
@@ -372,4 +376,160 @@ async def delete_vm(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Lỗi khi xóa VM: {str(e)}",
+        )
+
+
+@router.post("/{vm_id}/clone", response_model=VMResponse, status_code=status.HTTP_201_CREATED)
+async def clone_vm(
+    vm_id: int,
+    clone_data: VMCloneRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Clone a VM (owner or admin only)."""
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+
+    if not vm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy VM")
+
+    if vm.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền nhân bản VM này")
+
+    # Check user quotas
+    user_vms_result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.user_id == current_user.id)
+    )
+    user_vms = user_vms_result.scalars().all()
+    current_vm_count = len(user_vms)
+    current_disk_gb = sum(v.disk_gb for v in user_vms)
+    current_ram_mb = sum(v.memory_mb for v in user_vms)
+    current_cpu_cores = sum(v.cores for v in user_vms)
+
+    if current_user.max_vms is not None and current_vm_count >= current_user.max_vms:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Đã vượt giới hạn số VM ({current_vm_count}/{current_user.max_vms})")
+    if current_user.max_disk_gb is not None and current_disk_gb + vm.disk_gb > current_user.max_disk_gb:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đã vượt giới hạn dung lượng ổ cứng")
+    if current_user.max_ram_mb is not None and current_ram_mb + vm.memory_mb > current_user.max_ram_mb:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đã vượt giới hạn RAM")
+    if current_user.max_cpu_cores is not None and current_cpu_cores + vm.cores > current_user.max_cpu_cores:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đã vượt giới hạn CPU cores")
+
+    try:
+        proxmox = ProxmoxService()
+        new_vmid = await proxmox.get_next_vmid()
+        await proxmox.clone_vm(vm.vmid, new_vmid, clone_data.name)
+
+        new_vm = VirtualMachine(
+            user_id=current_user.id,
+            vmid=new_vmid,
+            name=clone_data.name,
+            cores=vm.cores,
+            memory_mb=vm.memory_mb,
+            disk_gb=vm.disk_gb,
+            os_type=vm.os_type,
+            status="creating",
+            proxmox_node=vm.proxmox_node,
+            storage=vm.storage,
+        )
+        session.add(new_vm)
+        await session.commit()
+        await session.refresh(new_vm)
+        return new_vm
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi nhân bản VM: {str(e)}",
+        )
+
+
+@router.get("/{vm_id}/metrics", response_model=VMMetricsResponse)
+async def get_vm_metrics(
+    vm_id: int,
+    timeframe: str = "hour",
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get VM resource usage metrics over time."""
+    if timeframe not in ("hour", "day", "week", "month", "year"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Timeframe không hợp lệ")
+
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+
+    if not vm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy VM")
+    if vm.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền truy cập VM này")
+
+    try:
+        proxmox = ProxmoxService()
+        rrd_data = await proxmox.get_vm_rrddata(vm.vmid, timeframe)
+
+        data_points = []
+        for point in rrd_data:
+            data_points.append(VMMetricsDataPoint(
+                time=point.get("time", 0),
+                cpu=point.get("cpu"),
+                mem=point.get("mem"),
+                maxmem=point.get("maxmem"),
+                netin=point.get("netin"),
+                netout=point.get("netout"),
+                disk=point.get("disk"),
+                maxdisk=point.get("maxdisk"),
+            ))
+
+        return VMMetricsResponse(timeframe=timeframe, data=data_points)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi lấy metrics: {str(e)}",
+        )
+
+
+@router.get("/{vm_id}/console", response_model=VMConsoleResponse)
+async def get_vm_console(
+    vm_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get VNC console proxy info for noVNC connection."""
+    # Check feature toggle
+    feature_enabled = await get_setting(session, "feature_novnc_console")
+    if (feature_enabled or "false").lower() != "true":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Chức năng console chưa được bật")
+
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+
+    if not vm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy VM")
+    if vm.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền truy cập VM này")
+    if vm.status != "running":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VM phải đang chạy để mở console")
+
+    try:
+        proxmox = ProxmoxService()
+        proxy_data = await proxmox.create_vnc_proxy(vm.vmid)
+
+        return VMConsoleResponse(
+            ticket=proxy_data.get("ticket", ""),
+            port=proxy_data.get("port", 0),
+            node=vm.proxmox_node,
+            vmid=vm.vmid,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi tạo console: {str(e)}",
         )

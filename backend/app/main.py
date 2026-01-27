@@ -2,20 +2,28 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import create_tables
-from app.api import auth_router, vm_router, health_router, admin_router
+from app.api import (
+    auth_router,
+    vm_router,
+    health_router,
+    admin_user_router,
+    admin_vm_router,
+    admin_settings_router,
+    admin_audit_router,
+    public_settings_router,
+    vm_network_router,
+)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    # Startup: Create database tables
     print("Creating database tables...")
     await create_tables()
     print("Database tables created successfully")
 
     yield
 
-    # Shutdown: cleanup if needed
     print("Shutting down application...")
 
 
@@ -30,7 +38,7 @@ app = FastAPI(
 # Configure CORS for internal use
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for internal use
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -40,7 +48,12 @@ app.add_middleware(
 app.include_router(health_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(vm_router, prefix="/api")
-app.include_router(admin_router, prefix="/api")
+app.include_router(vm_network_router, prefix="/api")
+app.include_router(public_settings_router, prefix="/api")
+app.include_router(admin_user_router, prefix="/api")
+app.include_router(admin_vm_router, prefix="/api")
+app.include_router(admin_settings_router, prefix="/api")
+app.include_router(admin_audit_router, prefix="/api")
 
 
 @app.get("/")

@@ -17,7 +17,8 @@ import AdminUserManagementPage from './pages/admin-user-management-page';
 import AdminVmOverviewPage from './pages/admin-vm-overview-page';
 import AdminAuditLogPage from './pages/admin-audit-log-page';
 import UserProfileSettingsPage from './pages/user-profile-settings-page';
-import AdminTelegramSettingsPage from './pages/admin-telegram-settings-page';
+import AdminSettingsPage from './pages/admin-settings-page';
+import TwoFactorSetupPage from './pages/two-factor-setup-page';
 
 interface ThemeContextType {
   mode: PaletteMode;
@@ -120,11 +121,12 @@ export default function App() {
                 <Route path="/vms/:id" element={<VMDetailPage />} />
                 <Route path="/vms" element={<VMListPage />} />
                 <Route path="/profile" element={<UserProfileSettingsPage />} />
+                <Route path="/2fa/setup" element={<TwoFactorSetupPage />} />
                 <Route element={<AdminRoute />}>
                   <Route path="/admin/users" element={<AdminUserManagementPage />} />
                   <Route path="/admin/vms" element={<AdminVmOverviewPage />} />
                   <Route path="/admin/audit-logs" element={<AdminAuditLogPage />} />
-                  <Route path="/admin/telegram" element={<AdminTelegramSettingsPage />} />
+                  <Route path="/admin/settings" element={<AdminSettingsPage />} />
                 </Route>
               </Route>
             </Route>

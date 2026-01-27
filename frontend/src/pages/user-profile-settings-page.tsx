@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Paper,
@@ -8,12 +9,19 @@ import {
   Alert,
   Snackbar,
   Stack,
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import { useAuth } from '../hooks/use-auth-context';
 import apiClient from '../services/api-client';
+import { authService } from '../services/auth-service';
 
 export default function UserProfileSettingsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [telegramChatId, setTelegramChatId] = useState(user?.telegram_chat_id || '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -21,29 +29,28 @@ export default function UserProfileSettingsPage() {
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: '',
-    severity: 'success' as 'success' | 'error'
+    severity: 'success' as 'success' | 'error',
   });
+
+  // 2FA disable dialog state
+  const [disableDialogOpen, setDisableDialogOpen] = useState(false);
+  const [disableTotpCode, setDisableTotpCode] = useState('');
+  const [disableLoading, setDisableLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const updateData: any = {};
+      const updateData: Record<string, string> = {};
 
-      // Only include telegram_chat_id if changed
       if (telegramChatId !== (user?.telegram_chat_id || '')) {
         updateData.telegram_chat_id = telegramChatId;
       }
 
-      // Only include password fields if new password is provided
       if (newPassword) {
         if (!currentPassword) {
-          setSnackbar({
-            open: true,
-            message: 'Cần nhập mật khẩu hiện tại để đổi mật khẩu',
-            severity: 'error'
-          });
+          setSnackbar({ open: true, message: 'Cần nhập mật khẩu hiện tại để đổi mật khẩu', severity: 'error' });
           setLoading(false);
           return;
         }
@@ -52,14 +59,7 @@ export default function UserProfileSettingsPage() {
       }
 
       await apiClient.patch('/auth/profile', updateData);
-
-      setSnackbar({
-        open: true,
-        message: 'Cập nhật thông tin thành công',
-        severity: 'success'
-      });
-
-      // Clear password fields
+      setSnackbar({ open: true, message: 'Cập nhật thông tin thành công', severity: 'success' });
       setCurrentPassword('');
       setNewPassword('');
     } catch (error: any) {
@@ -67,10 +67,30 @@ export default function UserProfileSettingsPage() {
       setSnackbar({
         open: true,
         message: Array.isArray(errorMessage) ? errorMessage[0]?.msg : errorMessage,
-        severity: 'error'
+        severity: 'error',
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDisable2FA = async () => {
+    setDisableLoading(true);
+    try {
+      await authService.disable2FA(disableTotpCode);
+      setSnackbar({ open: true, message: 'Đã tắt xác thực hai yếu tố', severity: 'success' });
+      setDisableDialogOpen(false);
+      setDisableTotpCode('');
+      // Reload page to update user info
+      window.location.reload();
+    } catch (error: any) {
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.detail || 'Mã xác thực không đúng',
+        severity: 'error',
+      });
+    } finally {
+      setDisableLoading(false);
     }
   };
 
@@ -121,18 +141,81 @@ export default function UserProfileSettingsPage() {
               helperText="Ít nhất 8 ký tự, bao gồm chữ hoa, chữ thường và số"
             />
 
-            <Button
-              type="submit"
-              variant="contained"
-              size="large"
-              disabled={loading}
-              fullWidth
-            >
+            <Button type="submit" variant="contained" size="large" disabled={loading} fullWidth>
               {loading ? 'Đang lưu...' : 'Lưu thay đổi'}
             </Button>
           </Stack>
         </form>
       </Paper>
+
+      {/* 2FA Section */}
+      <Paper sx={{ p: 4, mt: 3, maxWidth: 600 }}>
+        <Typography variant="h6" gutterBottom>
+          Xác thực hai yếu tố (2FA)
+        </Typography>
+
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+          <Typography variant="body1">Trạng thái:</Typography>
+          <Chip
+            label={user?.has_2fa ? 'Đã bật' : 'Chưa bật'}
+            color={user?.has_2fa ? 'success' : 'default'}
+            size="small"
+          />
+        </Box>
+
+        {user?.has_2fa ? (
+          <Button
+            variant="outlined"
+            color="error"
+            onClick={() => setDisableDialogOpen(true)}
+          >
+            Tắt 2FA
+          </Button>
+        ) : (
+          <Button
+            variant="contained"
+            onClick={() => navigate('/2fa/setup')}
+          >
+            Thiết lập 2FA
+          </Button>
+        )}
+      </Paper>
+
+      {/* Disable 2FA Dialog */}
+      <Dialog
+        open={disableDialogOpen}
+        onClose={() => { setDisableDialogOpen(false); setDisableTotpCode(''); }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Tắt xác thực hai yếu tố</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Nhập mã xác thực từ ứng dụng để xác nhận tắt 2FA.
+          </Typography>
+          <TextField
+            label="Mã xác thực (6 số)"
+            value={disableTotpCode}
+            onChange={(e) => setDisableTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            fullWidth
+            autoFocus
+            inputProps={{ maxLength: 6, inputMode: 'numeric' }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setDisableDialogOpen(false); setDisableTotpCode(''); }}>
+            Hủy
+          </Button>
+          <Button
+            onClick={handleDisable2FA}
+            color="error"
+            variant="contained"
+            disabled={disableLoading || disableTotpCode.length !== 6}
+          >
+            {disableLoading ? 'Đang xử lý...' : 'Xác nhận tắt'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={snackbar.open}
@@ -140,10 +223,7 @@ export default function UserProfileSettingsPage() {
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <Alert
-          severity={snackbar.severity}
-          onClose={() => setSnackbar({ ...snackbar, open: false })}
-        >
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>
           {snackbar.message}
         </Alert>
       </Snackbar>

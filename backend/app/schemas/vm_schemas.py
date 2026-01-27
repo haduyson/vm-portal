@@ -45,3 +45,30 @@ class VMResourceResponse(BaseModel):
     memory_total_mb: float
     disk_used_gb: float
     disk_total_gb: float
+
+
+class VMCloneRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=50)
+
+
+class VMMetricsDataPoint(BaseModel):
+    time: float
+    cpu: Optional[float] = None
+    mem: Optional[float] = None
+    maxmem: Optional[float] = None
+    netin: Optional[float] = None
+    netout: Optional[float] = None
+    disk: Optional[float] = None
+    maxdisk: Optional[float] = None
+
+
+class VMMetricsResponse(BaseModel):
+    timeframe: str
+    data: List[VMMetricsDataPoint]
+
+
+class VMConsoleResponse(BaseModel):
+    ticket: str
+    port: int
+    node: str
+    vmid: int

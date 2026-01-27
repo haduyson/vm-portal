@@ -1,6 +1,21 @@
 from app.api.auth_endpoints import router as auth_router
 from app.api.vm_endpoints import router as vm_router
 from app.api.health_endpoints import router as health_router
-from app.api.admin_endpoints import router as admin_router
+from app.api.admin_user_endpoints import router as admin_user_router
+from app.api.admin_vm_endpoints import router as admin_vm_router
+from app.api.admin_settings_endpoints import router as admin_settings_router
+from app.api.admin_audit_endpoints import router as admin_audit_router
+from app.api.public_settings_endpoints import router as public_settings_router
+from app.api.vm_network_endpoints import router as vm_network_router
 
-__all__ = ["auth_router", "vm_router", "health_router", "admin_router"]
+__all__ = [
+    "auth_router",
+    "vm_router",
+    "health_router",
+    "admin_user_router",
+    "admin_vm_router",
+    "admin_settings_router",
+    "admin_audit_router",
+    "public_settings_router",
+    "vm_network_router",
+]

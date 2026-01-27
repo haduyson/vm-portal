@@ -1,66 +1,49 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.security import hash_password, verify_password, create_access_token, get_current_user
+from app.core.security import (
+    hash_password, verify_password, create_access_token, get_current_user,
+    create_refresh_token, verify_refresh_token, revoke_refresh_tokens,
+    revoke_single_refresh_token, create_partial_token, verify_partial_token,
+)
 from app.database import get_session
 from app.models.user_model import User
 from app.models.virtual_machine_model import VirtualMachine
-from app.schemas.user_schemas import UserCreate, UserLogin, UserResponse, Token, ProfileUpdate, ForgotPasswordRequest
+from app.schemas.user_schemas import UserLogin, UserResponse, ProfileUpdate, ForgotPasswordRequest
+from app.schemas.auth_schemas import (
+    TokenPairResponse, RefreshTokenRequest,
+    LoginPartialResponse, Login2FARequest,
+    TwoFactorSetupResponse, TwoFactorEnableRequest, TwoFactorDisableRequest,
+)
 from pydantic import BaseModel
 from typing import Optional
 from app.core.generate_random_password import generate_random_password
 from app.services.telegram_notifier import TelegramNotifier
+from app.services.system_settings_service import get_setting
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
-# Public registration disabled - use admin endpoint to create users
-# @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-# async def register(
-#     user_data: UserCreate,
-#     session: AsyncSession = Depends(get_session),
-# ):
-#     """Register a new user."""
-#     # Check if username already exists
-#     result = await session.execute(
-#         select(User).where(User.username == user_data.username)
-#     )
-#     existing_user = result.scalar_one_or_none()
-#
-#     if existing_user:
-#         raise HTTPException(
-#             status_code=status.HTTP_400_BAD_REQUEST,
-#             detail="Tên đăng nhập đã tồn tại",
-#         )
-#
-#     # Create new user
-#     hashed_password = hash_password(user_data.password)
-#     new_user = User(
-#         username=user_data.username,
-#         hashed_password=hashed_password,
-#         telegram_chat_id=user_data.telegram_chat_id,
-#     )
-#
-#     session.add(new_user)
-#     await session.commit()
-#     await session.refresh(new_user)
-#
-#     return new_user
+async def _get_refresh_expiry_days(session: AsyncSession) -> int:
+    """Get refresh token expiry from settings, default 7 days."""
+    val = await get_setting(session, "refresh_token_expiry_days")
+    try:
+        return int(val) if val else 7
+    except (ValueError, TypeError):
+        return 7
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login")
 async def login(
     credentials: UserLogin,
     session: AsyncSession = Depends(get_session),
 ):
-    """Authenticate user and return JWT token."""
-    # Get user from database
+    """Authenticate user and return JWT token pair."""
     result = await session.execute(
         select(User).where(User.username == credentials.username)
     )
     user = result.scalar_one_or_none()
 
-    # Verify credentials
     if not user or not verify_password(credentials.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -68,20 +51,130 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Create access token
-    access_token = create_access_token(data={"sub": user.username})
+    # Check if 2FA is enabled for this user
+    if user.totp_secret:
+        partial_token = create_partial_token(user.username)
+        return LoginPartialResponse(
+            requires_2fa=True,
+            partial_token=partial_token,
+        )
 
-    return Token(
+    # No 2FA - issue full token pair
+    access_token = create_access_token(data={"sub": user.username})
+    expiry_days = await _get_refresh_expiry_days(session)
+    refresh_token = await create_refresh_token(session, user.id, expiry_days)
+
+    return TokenPairResponse(
         access_token=access_token,
+        refresh_token=refresh_token,
         username=user.username,
         is_admin=user.is_admin,
     )
 
 
+@router.post("/login/2fa", response_model=TokenPairResponse)
+async def login_2fa(
+    request: Login2FARequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Complete 2FA login with TOTP code."""
+    username = verify_partial_token(request.partial_token)
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token không hợp lệ hoặc đã hết hạn",
+        )
+
+    result = await session.execute(
+        select(User).where(User.username == username)
+    )
+    user = result.scalar_one_or_none()
+    if not user or not user.totp_secret:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Người dùng không hợp lệ",
+        )
+
+    # Verify TOTP code - import here to avoid issues if pyotp not installed yet
+    try:
+        from app.services.totp_service import verify_totp_code
+        if not verify_totp_code(user.totp_secret, request.totp_code):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Mã xác thực không đúng",
+            )
+    except ImportError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Chức năng 2FA chưa được cài đặt",
+        )
+
+    access_token = create_access_token(data={"sub": user.username})
+    expiry_days = await _get_refresh_expiry_days(session)
+    refresh_token = await create_refresh_token(session, user.id, expiry_days)
+
+    return TokenPairResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        username=user.username,
+        is_admin=user.is_admin,
+    )
+
+
+@router.post("/refresh", response_model=TokenPairResponse)
+async def refresh_token(
+    request: RefreshTokenRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Refresh access token using refresh token (rotation)."""
+    token_record = await verify_refresh_token(session, request.refresh_token)
+    if not token_record:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token không hợp lệ hoặc đã hết hạn",
+        )
+
+    # Get user
+    result = await session.execute(
+        select(User).where(User.id == token_record.user_id)
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Người dùng không tồn tại",
+        )
+
+    # Revoke old token (rotation)
+    await revoke_single_refresh_token(session, request.refresh_token)
+
+    # Issue new pair
+    access_token = create_access_token(data={"sub": user.username})
+    expiry_days = await _get_refresh_expiry_days(session)
+    new_refresh_token = await create_refresh_token(session, user.id, expiry_days)
+
+    return TokenPairResponse(
+        access_token=access_token,
+        refresh_token=new_refresh_token,
+        username=user.username,
+        is_admin=user.is_admin,
+    )
+
+
+@router.post("/logout")
+async def logout(
+    request: RefreshTokenRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Revoke refresh token on logout."""
+    await revoke_single_refresh_token(session, request.refresh_token)
+    return {"message": "Đăng xuất thành công"}
+
+
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
     """Get current authenticated user profile."""
-    return current_user
+    return UserResponse.from_user(current_user)
 
 
 @router.patch("/profile", response_model=UserResponse)
@@ -91,7 +184,6 @@ async def update_profile(
     session: AsyncSession = Depends(get_session),
 ):
     """Update own password and/or telegram_chat_id."""
-    # If changing password, verify current password
     if profile_update.new_password:
         if not profile_update.current_password:
             raise HTTPException(
@@ -105,13 +197,12 @@ async def update_profile(
             )
         current_user.hashed_password = hash_password(profile_update.new_password)
 
-    # Update telegram_chat_id if provided
     if profile_update.telegram_chat_id is not None:
         current_user.telegram_chat_id = profile_update.telegram_chat_id
 
     await session.commit()
     await session.refresh(current_user)
-    return current_user
+    return UserResponse.from_user(current_user)
 
 
 class QuotaResponse(BaseModel):
@@ -159,32 +250,117 @@ async def forgot_password(
     session: AsyncSession = Depends(get_session),
 ):
     """Reset password and send new password via Telegram (public endpoint)."""
-    # Look up user by username
     result = await session.execute(
         select(User).where(User.username == request.username)
     )
     user = result.scalar_one_or_none()
 
-    # Generic success response to prevent username enumeration
     if not user:
         return {"message": "Nếu tài khoản tồn tại và có liên kết Telegram, mật khẩu mới sẽ được gửi."}
 
-    # Check if user has telegram_chat_id
     if not user.telegram_chat_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Tài khoản chưa liên kết Telegram. Vui lòng liên hệ quản trị viên.",
         )
 
-    # Generate new random password
     new_password = generate_random_password()
-
-    # Hash and save new password
     user.hashed_password = hash_password(new_password)
     await session.commit()
 
-    # Send via Telegram
     telegram = await TelegramNotifier.from_db_config(session)
     await telegram.send_password_reset(user.telegram_chat_id, user.username, new_password)
 
     return {"message": "Mật khẩu mới đã được gửi qua Telegram."}
+
+
+# --- 2FA Setup/Enable/Disable endpoints ---
+
+@router.get("/2fa/setup", response_model=TwoFactorSetupResponse)
+async def setup_2fa(
+    current_user: User = Depends(get_current_user),
+):
+    """Generate TOTP secret and QR code for 2FA setup."""
+    if current_user.totp_secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="2FA đã được bật cho tài khoản này",
+        )
+
+    try:
+        from app.services.totp_service import generate_totp_secret, get_totp_uri, generate_qr_base64
+    except ImportError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Chức năng 2FA chưa được cài đặt",
+        )
+
+    secret = generate_totp_secret()
+    uri = get_totp_uri(secret, current_user.username)
+    qr_base64 = generate_qr_base64(uri)
+
+    return TwoFactorSetupResponse(secret=secret, qr_code_base64=qr_base64)
+
+
+@router.post("/2fa/enable")
+async def enable_2fa(
+    request: TwoFactorEnableRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Enable 2FA by verifying TOTP code against the secret from /2fa/setup."""
+    if current_user.totp_secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="2FA đã được bật",
+        )
+
+    try:
+        from app.services.totp_service import verify_totp_code
+    except ImportError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Chức năng 2FA chưa được cài đặt",
+        )
+
+    if not verify_totp_code(request.secret, request.totp_code):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mã xác thực không đúng",
+        )
+
+    current_user.totp_secret = request.secret
+    await session.commit()
+    return {"message": "Đã bật xác thực hai yếu tố"}
+
+
+@router.post("/2fa/disable")
+async def disable_2fa(
+    request: TwoFactorDisableRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Disable 2FA by verifying current TOTP code."""
+    if not current_user.totp_secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="2FA chưa được bật",
+        )
+
+    try:
+        from app.services.totp_service import verify_totp_code
+    except ImportError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Chức năng 2FA chưa được cài đặt",
+        )
+
+    if not verify_totp_code(current_user.totp_secret, request.totp_code):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mã xác thực không đúng",
+        )
+
+    current_user.totp_secret = None
+    await session.commit()
+    return {"message": "Đã tắt xác thực hai yếu tố"}

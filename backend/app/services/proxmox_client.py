@@ -109,6 +109,81 @@ class ProxmoxService:
 
         return await asyncio.to_thread(_delete_vm)
 
+    async def clone_vm(self, source_vmid: int, new_vmid: int, name: str) -> Dict:
+        """Clone a VM in Proxmox."""
+        def _clone_vm():
+            return self.proxmox.nodes(self.node).qemu(source_vmid).clone.post(
+                newid=new_vmid,
+                name=name,
+                full=1,
+            )
+
+        return await asyncio.to_thread(_clone_vm)
+
+    async def get_vm_rrddata(self, vmid: int, timeframe: str = "hour") -> list:
+        """Get VM RRD data for resource usage charts."""
+        def _get_rrddata():
+            return self.proxmox.nodes(self.node).qemu(vmid).rrddata.get(
+                timeframe=timeframe
+            )
+
+        return await asyncio.to_thread(_get_rrddata)
+
+    async def create_vnc_proxy(self, vmid: int) -> Dict:
+        """Create a VNC proxy connection for noVNC console."""
+        def _create_proxy():
+            return self.proxmox.nodes(self.node).qemu(vmid).vncproxy.post(
+                websocket=1
+            )
+
+        return await asyncio.to_thread(_create_proxy)
+
+    async def get_vm_network_interfaces(self, vmid: int) -> list:
+        """Get VM network interfaces via QEMU guest agent."""
+        def _get_interfaces():
+            try:
+                result = self.proxmox.nodes(self.node).qemu(vmid).agent("network-get-interfaces").get()
+                return result.get("result", [])
+            except Exception:
+                return []
+
+        return await asyncio.to_thread(_get_interfaces)
+
+    async def get_firewall_rules(self, vmid: int) -> list:
+        """Get VM firewall rules."""
+        def _get_rules():
+            return self.proxmox.nodes(self.node).qemu(vmid).firewall.rules.get()
+
+        return await asyncio.to_thread(_get_rules)
+
+    async def add_firewall_rule(self, vmid: int, rule: Dict) -> Dict:
+        """Add a firewall rule to a VM."""
+        def _add_rule():
+            return self.proxmox.nodes(self.node).qemu(vmid).firewall.rules.post(**rule)
+
+        return await asyncio.to_thread(_add_rule)
+
+    async def delete_firewall_rule(self, vmid: int, pos: int) -> Dict:
+        """Delete a firewall rule by position."""
+        def _delete_rule():
+            return self.proxmox.nodes(self.node).qemu(vmid).firewall.rules(pos).delete()
+
+        return await asyncio.to_thread(_delete_rule)
+
+    async def get_firewall_options(self, vmid: int) -> Dict:
+        """Get VM firewall options."""
+        def _get_options():
+            return self.proxmox.nodes(self.node).qemu(vmid).firewall.options.get()
+
+        return await asyncio.to_thread(_get_options)
+
+    async def set_firewall_options(self, vmid: int, options: Dict) -> Dict:
+        """Set VM firewall options."""
+        def _set_options():
+            return self.proxmox.nodes(self.node).qemu(vmid).firewall.options.put(**options)
+
+        return await asyncio.to_thread(_set_options)
+
     async def get_vm_resources(self, vmid: int) -> Dict:
         """Get VM resource usage (CPU, memory, disk)."""
         def _get_resources():

@@ -15,4 +15,5 @@ class User(Base):
     max_ram_mb = Column(Integer, nullable=True)  # null = unlimited
     max_vms = Column(Integer, nullable=True)  # null = unlimited
     max_cpu_cores = Column(Integer, nullable=True)  # null = unlimited
+    totp_secret = Column(String, nullable=True)  # null = 2FA not enabled
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

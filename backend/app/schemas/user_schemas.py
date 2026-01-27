@@ -34,10 +34,22 @@ class UserResponse(BaseModel):
     username: str
     telegram_chat_id: Optional[str]
     is_admin: bool
+    has_2fa: bool = False
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+    @classmethod
+    def from_user(cls, user):
+        return cls(
+            id=user.id,
+            username=user.username,
+            telegram_chat_id=user.telegram_chat_id,
+            is_admin=user.is_admin,
+            has_2fa=bool(user.totp_secret),
+            created_at=user.created_at,
+        )
 
 
 class Token(BaseModel):
