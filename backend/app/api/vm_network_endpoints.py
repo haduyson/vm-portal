@@ -14,7 +14,7 @@ from app.schemas.network_schemas import (
     FirewallOptionsResponse,
     FirewallOptionsUpdate,
 )
-from app.services.proxmox_client import ProxmoxService
+from app.services.proxmox_client import ProxmoxService, create_proxmox_service
 
 
 router = APIRouter(prefix="/vms", tags=["vm-network"])
@@ -54,7 +54,7 @@ async def get_vm_network_interfaces(
         )
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         interfaces_data = await proxmox.get_vm_network_interfaces(vm.vmid)
 
         # Transform data to response format
@@ -116,7 +116,7 @@ async def get_firewall_rules(
         )
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         rules = await proxmox.get_firewall_rules(vm.vmid)
         return [FirewallRuleResponse(**rule) for rule in rules]
 
@@ -157,7 +157,7 @@ async def add_firewall_rule(
         )
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         # Convert Pydantic model to dict, excluding None values
         rule_dict = rule_data.model_dump(exclude_none=True)
         result_data = await proxmox.add_firewall_rule(vm.vmid, rule_dict)
@@ -210,7 +210,7 @@ async def delete_firewall_rule(
         )
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         await proxmox.delete_firewall_rule(vm.vmid, pos)
 
     except HTTPException:
@@ -249,7 +249,7 @@ async def get_firewall_options(
         )
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         options = await proxmox.get_firewall_options(vm.vmid)
         return FirewallOptionsResponse(**options)
 
@@ -290,7 +290,7 @@ async def update_firewall_options(
         )
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         # Convert Pydantic model to dict, excluding None values
         options_dict = options_data.model_dump(exclude_none=True)
         await proxmox.set_firewall_options(vm.vmid, options_dict)

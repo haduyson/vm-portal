@@ -12,7 +12,7 @@ from app.schemas.vm_schemas import (
 )
 from app.services.system_settings_service import get_setting
 from app.services.vm_provisioning_service import VMProvisioningService
-from app.services.proxmox_client import ProxmoxService
+from app.services.proxmox_client import ProxmoxService, create_proxmox_service
 from app.config import settings
 import asyncio
 
@@ -72,7 +72,7 @@ async def create_vm(
                 )
 
         # Get next available VMID from Proxmox
-        provisioning_service = VMProvisioningService()
+        provisioning_service = await VMProvisioningService.create(session)
         vmid = await provisioning_service.proxmox.get_next_vmid()
 
         # Create VM record in database
@@ -193,7 +193,7 @@ async def start_vm(
         )
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         await proxmox.start_vm(vm.vmid)
         vm.status = "running"
         await session.commit()
@@ -237,7 +237,7 @@ async def stop_vm(
         )
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         await proxmox.stop_vm(vm.vmid)
         vm.status = "stopped"
         await session.commit()
@@ -281,7 +281,7 @@ async def restart_vm(
         )
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         await proxmox.stop_vm(vm.vmid)
         # Wait a bit before starting
         await asyncio.sleep(2)
@@ -328,7 +328,7 @@ async def get_vm_resources(
         )
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         resources = await proxmox.get_vm_resources(vm.vmid)
         return VMResourceResponse(**resources)
     except Exception as e:
@@ -363,7 +363,7 @@ async def delete_vm(
         )
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         # Stop VM if running
         if vm.status == "running":
             await proxmox.stop_vm(vm.vmid)
@@ -418,7 +418,7 @@ async def clone_vm(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đã vượt giới hạn CPU cores")
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         new_vmid = await proxmox.get_next_vmid()
         await proxmox.clone_vm(vm.vmid, new_vmid, clone_data.name)
 
@@ -470,7 +470,7 @@ async def get_vm_metrics(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền truy cập VM này")
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         rrd_data = await proxmox.get_vm_rrddata(vm.vmid, timeframe)
 
         data_points = []
@@ -519,7 +519,7 @@ async def get_vm_console(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VM phải đang chạy để mở console")
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         proxy_data = await proxmox.create_vnc_proxy(vm.vmid)
 
         return VMConsoleResponse(

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.config import settings
 from app.models.virtual_machine_model import VirtualMachine
-from app.services.proxmox_client import ProxmoxService
+from app.services.proxmox_client import ProxmoxService, create_proxmox_service
 from app.services.cloud_init_generator import CloudInitGenerator
 from app.services.telegram_notifier import TelegramNotifier
 
@@ -12,9 +12,15 @@ from app.services.telegram_notifier import TelegramNotifier
 class VMProvisioningService:
     """Orchestrate VM provisioning with Proxmox, cloud-init, and notifications."""
 
-    def __init__(self):
-        self.proxmox = ProxmoxService()
+    def __init__(self, proxmox: Optional[ProxmoxService] = None):
+        self.proxmox = proxmox or ProxmoxService()
         self.cloud_init = CloudInitGenerator()
+
+    @classmethod
+    async def create(cls, session: AsyncSession) -> "VMProvisioningService":
+        """Factory: create with DB-configured ProxmoxService."""
+        proxmox = await create_proxmox_service(session)
+        return cls(proxmox=proxmox)
 
     async def provision_vm(
         self,

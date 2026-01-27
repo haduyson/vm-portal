@@ -10,6 +10,9 @@ class AllSettingsResponse(BaseModel):
     telegram_bot_token_masked: str
     telegram_default_chat_id: Optional[str]
     telegram_source: str
+    proxmox_host: Optional[str]
+    proxmox_token_value_masked: str
+    proxmox_source: str
 
 
 class AllSettingsUpdate(BaseModel):
@@ -18,6 +21,8 @@ class AllSettingsUpdate(BaseModel):
     refresh_token_expiry_days: Optional[str] = None
     telegram_bot_token: Optional[str] = None
     telegram_default_chat_id: Optional[str] = None
+    proxmox_host: Optional[str] = None
+    proxmox_token_value: Optional[str] = None
 
 
 class PublicFeaturesResponse(BaseModel):

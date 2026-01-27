@@ -50,3 +50,23 @@ async def get_telegram_config(session: AsyncSession) -> dict:
         "default_chat_id": default_chat_id,
         "source": source
     }
+
+
+async def get_proxmox_config(session: AsyncSession) -> dict:
+    """
+    Get Proxmox configuration from database, with fallback to environment variables.
+    Returns dict with host, token_value, and source indicator.
+    """
+    db_host = await get_setting(session, "proxmox_host")
+    db_token_value = await get_setting(session, "proxmox_token_value")
+
+    host = db_host if db_host else settings.PROXMOX_HOST
+    token_value = db_token_value if db_token_value else settings.PROXMOX_TOKEN_VALUE
+
+    source = "database" if (db_host or db_token_value) else "environment"
+
+    return {
+        "host": host,
+        "token_value": token_value,
+        "source": source,
+    }

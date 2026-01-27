@@ -9,7 +9,7 @@ from app.database import get_session
 from app.models.user_model import User
 from app.models.virtual_machine_model import VirtualMachine
 from app.schemas.admin_schemas import AdminVMResponse, AdminStatsResponse
-from app.services.proxmox_client import ProxmoxService
+from app.services.proxmox_client import ProxmoxService, create_proxmox_service
 from app.api.admin_shared_helpers import log_audit
 from sqlalchemy import func
 
@@ -84,7 +84,7 @@ async def admin_start_vm(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VM đang chạy")
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         await proxmox.start_vm(vm.vmid)
         vm.status = "running"
         await session.commit()
@@ -126,7 +126,7 @@ async def admin_stop_vm(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VM đã dừng")
 
     try:
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         await proxmox.stop_vm(vm.vmid)
         vm.status = "stopped"
         await session.commit()
@@ -161,7 +161,7 @@ async def admin_delete_vm(
 
     try:
         await log_audit(session, _admin.id, "delete_vm", "vm", vm.id, f"Deleted VM: {vm.name} (VMID: {vm.vmid})")
-        proxmox = ProxmoxService()
+        proxmox = await create_proxmox_service(session)
         await proxmox.delete_vm(vm.vmid)
         await session.delete(vm)
         await session.commit()

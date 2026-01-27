@@ -1,22 +1,30 @@
 import asyncio
 from typing import Dict, Optional
 from proxmoxer import ProxmoxAPI
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 
 
 class ProxmoxService:
     """Service for interacting with Proxmox VE API."""
 
-    def __init__(self):
+    def __init__(self, host: Optional[str] = None, token_value: Optional[str] = None):
         self.proxmox = ProxmoxAPI(
-            settings.PROXMOX_HOST,
+            host or settings.PROXMOX_HOST,
             port=settings.PROXMOX_PORT,
             user=settings.PROXMOX_USER,
             token_name=settings.PROXMOX_TOKEN_NAME,
-            token_value=settings.PROXMOX_TOKEN_VALUE,
+            token_value=token_value or settings.PROXMOX_TOKEN_VALUE,
             verify_ssl=settings.PROXMOX_VERIFY_SSL,
         )
         self.node = settings.PROXMOX_NODE
+
+
+async def create_proxmox_service(session: AsyncSession) -> ProxmoxService:
+    """Factory: create ProxmoxService with DB config (fallback to env)."""
+    from app.services.system_settings_service import get_proxmox_config
+    config = await get_proxmox_config(session)
+    return ProxmoxService(host=config["host"], token_value=config["token_value"])
 
     async def get_next_vmid(self) -> int:
         """Get the next available VMID from Proxmox."""
