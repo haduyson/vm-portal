@@ -75,6 +75,7 @@ class AdminPasswordResetResponse(BaseModel):
 
 class TelegramSettingsResponse(BaseModel):
     bot_token_masked: str
+    bot_token: Optional[str] = None
     default_chat_id: Optional[str]
     source: str  # "database" or "environment"
 

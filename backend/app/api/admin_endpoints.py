@@ -618,6 +618,7 @@ async def get_telegram_settings(
 
     return TelegramSettingsResponse(
         bot_token_masked=masked_token,
+        bot_token=bot_token,
         default_chat_id=config["default_chat_id"],
         source=config["source"]
     )
@@ -662,6 +663,7 @@ async def update_telegram_settings(
 
     return TelegramSettingsResponse(
         bot_token_masked=masked_token,
+        bot_token=bot_token,
         default_chat_id=config["default_chat_id"],
         source=config["source"]
     )

@@ -21,6 +21,7 @@ import apiClient from '../services/api-client';
 
 interface TelegramSettings {
   bot_token_masked: string;
+  bot_token: string | null;
   default_chat_id: string | null;
   source: string;
 }
@@ -30,6 +31,7 @@ export default function AdminTelegramSettingsPage() {
   const [chatId, setChatId] = useState('');
   const [currentSettings, setCurrentSettings] = useState<TelegramSettings | null>(null);
   const [showToken, setShowToken] = useState(false);
+  const [showCurrentToken, setShowCurrentToken] = useState(false);
   const [loading, setLoading] = useState(false);
   const [testLoading, setTestLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -130,16 +132,31 @@ export default function AdminTelegramSettingsPage() {
               </Box>
             )}
 
+            {currentSettings?.bot_token && (
+              <TextField
+                label="Bot Token hiện tại"
+                type={showCurrentToken ? 'text' : 'password'}
+                value={currentSettings.bot_token}
+                fullWidth
+                InputProps={{
+                  readOnly: true,
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => setShowCurrentToken(!showCurrentToken)} edge="end">
+                        {showCurrentToken ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            )}
+
             <TextField
-              label="Bot Token"
+              label="Bot Token mới"
               type={showToken ? 'text' : 'password'}
               value={botToken}
               onChange={(e) => setBotToken(e.target.value)}
-              placeholder={
-                currentSettings?.bot_token_masked
-                  ? `Hiện tại: ${currentSettings.bot_token_masked}`
-                  : 'Nhập bot token mới'
-              }
+              placeholder="Nhập bot token mới để cập nhật"
               fullWidth
               helperText="Nhập token mới để cập nhật, để trống nếu không muốn thay đổi"
               InputProps={{
