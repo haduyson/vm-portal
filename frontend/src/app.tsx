@@ -11,6 +11,7 @@ import VMCreatePage from './pages/vm-create-page';
 import VMListPage from './pages/vm-list-page';
 import AdminUserManagementPage from './pages/admin-user-management-page';
 import AdminVmOverviewPage from './pages/admin-vm-overview-page';
+import UserProfileSettingsPage from './pages/user-profile-settings-page';
 
 const theme = createTheme({
   palette: {
@@ -62,6 +63,7 @@ export default function App() {
                 <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/vms/create" element={<VMCreatePage />} />
                 <Route path="/vms" element={<VMListPage />} />
+                <Route path="/profile" element={<UserProfileSettingsPage />} />
                 <Route element={<AdminRoute />}>
                   <Route path="/admin/users" element={<AdminUserManagementPage />} />
                   <Route path="/admin/vms" element={<AdminVmOverviewPage />} />

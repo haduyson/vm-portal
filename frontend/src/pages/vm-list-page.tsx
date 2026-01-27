@@ -10,8 +10,17 @@ import {
   TableRow,
   Typography,
   Button,
+  IconButton,
+  Tooltip,
+  Alert,
+  Snackbar,
 } from '@mui/material';
-import { AddCircle as AddCircleIcon } from '@mui/icons-material';
+import {
+  AddCircle as AddCircleIcon,
+  PlayArrow as PlayArrowIcon,
+  Stop as StopIcon,
+  Refresh as RefreshIcon,
+} from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api-client';
 import VMStatusChip from '../components/vm-status-chip';
@@ -31,6 +40,8 @@ export default function VMListPage() {
   const navigate = useNavigate();
   const [vms, setVms] = useState<VM[]>([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
   const fetchVMs = async () => {
     try {
@@ -40,6 +51,19 @@ export default function VMListPage() {
       console.error('Error fetching VMs:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleVMAction = async (vmId: number, action: 'start' | 'stop' | 'restart') => {
+    setActionLoading(vmId);
+    try {
+      await apiClient.post(`/vms/${vmId}/${action}`);
+      setSnackbar({ open: true, message: `VM ${action === 'start' ? 'đã khởi động' : action === 'stop' ? 'đã dừng' : 'đã khởi động lại'} thành công`, severity: 'success' });
+      await fetchVMs();
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.detail || 'Có lỗi xảy ra', severity: 'error' });
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -104,6 +128,7 @@ export default function VMListPage() {
               <TableCell>IP</TableCell>
               <TableCell>SSH Domain</TableCell>
               <TableCell>Ngày tạo</TableCell>
+              <TableCell align="center">Hành động</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -120,11 +145,62 @@ export default function VMListPage() {
                 <TableCell>
                   {new Date(vm.created_at).toLocaleDateString('vi-VN')}
                 </TableCell>
+                <TableCell align="center">
+                  <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                    <Tooltip title="Khởi động">
+                      <span>
+                        <IconButton
+                          color="success"
+                          size="small"
+                          disabled={vm.status !== 'stopped' || actionLoading === vm.id}
+                          onClick={() => handleVMAction(vm.id, 'start')}
+                        >
+                          <PlayArrowIcon />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Tooltip title="Dừng">
+                      <span>
+                        <IconButton
+                          color="error"
+                          size="small"
+                          disabled={vm.status !== 'running' || actionLoading === vm.id}
+                          onClick={() => handleVMAction(vm.id, 'stop')}
+                        >
+                          <StopIcon />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Tooltip title="Khởi động lại">
+                      <span>
+                        <IconButton
+                          color="primary"
+                          size="small"
+                          disabled={vm.status !== 'running' || actionLoading === vm.id}
+                          onClick={() => handleVMAction(vm.id, 'restart')}
+                        >
+                          <RefreshIcon />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </Box>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </TableContainer>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

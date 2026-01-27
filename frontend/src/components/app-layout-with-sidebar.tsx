@@ -27,6 +27,7 @@ import {
   List as ListIcon,
   People as PeopleIcon,
   Dns as DnsIcon,
+  Person as PersonIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../hooks/use-auth-context';
 
@@ -62,6 +63,7 @@ export default function AppLayout() {
     { text: 'Tổng quan', icon: <DashboardIcon />, path: '/dashboard' },
     { text: 'Tạo máy ảo', icon: <AddCircleIcon />, path: '/vms/create' },
     { text: 'Danh sách VM', icon: <ListIcon />, path: '/vms' },
+    { text: 'Cài đặt tài khoản', icon: <PersonIcon />, path: '/profile' },
   ];
 
   const adminMenuItems = [

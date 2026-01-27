@@ -29,5 +29,12 @@
 ## Security
 - No hardcoded secrets, all in .env
 - Bcrypt for passwords, JWT HS256 for tokens
+- Password requirements enforced via Pydantic validators:
+  - Minimum 8 characters
+  - At least 1 uppercase letter (A-Z)
+  - At least 1 lowercase letter (a-z)
+  - At least 1 digit (0-9)
 - Input validation via Pydantic schemas
 - SQL injection prevention via SQLAlchemy ORM
+- Admin endpoints protected with `get_current_admin_user` dependency
+- VM actions require ownership verification (owner or admin)

@@ -14,6 +14,7 @@ from app.schemas.admin_schemas import (
     AdminUserUpdate,
     AdminVMResponse,
 )
+from app.services.proxmox_client import ProxmoxService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -206,3 +207,160 @@ async def get_admin_stats(
         running_vms=running_vms,
         creating_vms=creating_vms,
     )
+
+
+@router.post("/vms/{vm_id}/start", response_model=AdminVMResponse)
+async def admin_start_vm(
+    vm_id: int,
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Start any VM (admin only)."""
+    result = await session.execute(
+        select(VirtualMachine, User.username)
+        .join(User, VirtualMachine.user_id == User.id)
+        .where(VirtualMachine.id == vm_id)
+    )
+    row = result.one_or_none()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy VM",
+        )
+
+    vm, username = row
+
+    if vm.status == "running":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="VM đang chạy",
+        )
+
+    try:
+        proxmox = ProxmoxService()
+        await proxmox.start_vm(vm.vmid)
+        vm.status = "running"
+        await session.commit()
+        await session.refresh(vm)
+
+        return AdminVMResponse(
+            id=vm.id,
+            user_id=vm.user_id,
+            vmid=vm.vmid,
+            name=vm.name,
+            cores=vm.cores,
+            memory_mb=vm.memory_mb,
+            disk_gb=vm.disk_gb,
+            os_type=vm.os_type,
+            status=vm.status,
+            ip_address=vm.ip_address,
+            ssh_domain=vm.ssh_domain,
+            ssh_username=vm.ssh_username,
+            ssh_password=vm.ssh_password,
+            proxmox_node=vm.proxmox_node,
+            storage=vm.storage,
+            created_at=vm.created_at,
+            updated_at=vm.updated_at,
+            username=username,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi khởi động VM: {str(e)}",
+        )
+
+
+@router.post("/vms/{vm_id}/stop", response_model=AdminVMResponse)
+async def admin_stop_vm(
+    vm_id: int,
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Stop any VM (admin only)."""
+    result = await session.execute(
+        select(VirtualMachine, User.username)
+        .join(User, VirtualMachine.user_id == User.id)
+        .where(VirtualMachine.id == vm_id)
+    )
+    row = result.one_or_none()
+
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy VM",
+        )
+
+    vm, username = row
+
+    if vm.status == "stopped":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="VM đã dừng",
+        )
+
+    try:
+        proxmox = ProxmoxService()
+        await proxmox.stop_vm(vm.vmid)
+        vm.status = "stopped"
+        await session.commit()
+        await session.refresh(vm)
+
+        return AdminVMResponse(
+            id=vm.id,
+            user_id=vm.user_id,
+            vmid=vm.vmid,
+            name=vm.name,
+            cores=vm.cores,
+            memory_mb=vm.memory_mb,
+            disk_gb=vm.disk_gb,
+            os_type=vm.os_type,
+            status=vm.status,
+            ip_address=vm.ip_address,
+            ssh_domain=vm.ssh_domain,
+            ssh_username=vm.ssh_username,
+            ssh_password=vm.ssh_password,
+            proxmox_node=vm.proxmox_node,
+            storage=vm.storage,
+            created_at=vm.created_at,
+            updated_at=vm.updated_at,
+            username=username,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi dừng VM: {str(e)}",
+        )
+
+
+@router.delete("/vms/{vm_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_delete_vm(
+    vm_id: int,
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete any VM from Proxmox and DB (admin only)."""
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+
+    if not vm:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy VM",
+        )
+
+    try:
+        # Delete from Proxmox first
+        proxmox = ProxmoxService()
+        await proxmox.delete_vm(vm.vmid)
+
+        # Then delete from database
+        await session.delete(vm)
+        await session.commit()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi xóa VM: {str(e)}",
+        )

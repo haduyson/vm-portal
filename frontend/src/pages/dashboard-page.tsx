@@ -18,10 +18,18 @@ interface Stats {
   installing: number;
 }
 
+interface AdminStats {
+  total_users: number;
+  total_vms: number;
+  running_vms: number;
+  creating_vms: number;
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState<Stats>({ total: 0, running: 0, installing: 0 });
+  const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -35,6 +43,12 @@ export default function DashboardPage() {
           running: vms.filter((vm: any) => vm.status === 'running').length,
           installing: vms.filter((vm: any) => vm.status === 'installing' || vm.status === 'creating').length,
         });
+
+        // Fetch admin stats if user is admin
+        if (user?.is_admin) {
+          const adminResponse = await apiClient.get('/admin/stats');
+          setAdminStats(adminResponse.data);
+        }
       } catch (error) {
         console.error('Error fetching stats:', error);
       } finally {
@@ -43,7 +57,7 @@ export default function DashboardPage() {
     };
 
     fetchStats();
-  }, []);
+  }, [user]);
 
   return (
     <Box>
@@ -91,6 +105,67 @@ export default function DashboardPage() {
           </Card>
         </Grid>
       </Grid>
+
+      {user?.is_admin && adminStats && (
+        <>
+          <Typography variant="h5" sx={{ mt: 4, mb: 2 }}>
+            Thống kê hệ thống
+          </Typography>
+          <Grid container spacing={3}>
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ bgcolor: 'primary.light' }}>
+                <CardContent>
+                  <Typography color="white" gutterBottom>
+                    Tổng người dùng
+                  </Typography>
+                  <Typography variant="h4" color="white">
+                    {adminStats.total_users}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ bgcolor: 'secondary.light' }}>
+                <CardContent>
+                  <Typography color="white" gutterBottom>
+                    Tổng VM (hệ thống)
+                  </Typography>
+                  <Typography variant="h4" color="white">
+                    {adminStats.total_vms}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ bgcolor: 'success.light' }}>
+                <CardContent>
+                  <Typography color="white" gutterBottom>
+                    VM đang chạy (hệ thống)
+                  </Typography>
+                  <Typography variant="h4" color="white">
+                    {adminStats.running_vms}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={3}>
+              <Card sx={{ bgcolor: 'warning.light' }}>
+                <CardContent>
+                  <Typography color="white" gutterBottom>
+                    VM đang tạo (hệ thống)
+                  </Typography>
+                  <Typography variant="h4" color="white">
+                    {adminStats.creating_vms}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        </>
+      )}
 
       <Box sx={{ mt: 4 }}>
         <Button

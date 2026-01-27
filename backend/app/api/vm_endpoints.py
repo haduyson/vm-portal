@@ -8,6 +8,7 @@ from app.models.user_model import User
 from app.models.virtual_machine_model import VirtualMachine
 from app.schemas.vm_schemas import VMCreate, VMResponse, VMListResponse
 from app.services.vm_provisioning_service import VMProvisioningService
+from app.services.proxmox_client import ProxmoxService
 from app.config import settings
 import asyncio
 
@@ -109,3 +110,138 @@ async def get_vm(
         )
 
     return vm
+
+
+@router.post("/{vm_id}/start", response_model=VMResponse)
+async def start_vm(
+    vm_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Start a VM (owner or admin only)."""
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+
+    if not vm:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy VM",
+        )
+
+    if vm.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có quyền điều khiển VM này",
+        )
+
+    if vm.status == "running":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="VM đang chạy",
+        )
+
+    try:
+        proxmox = ProxmoxService()
+        await proxmox.start_vm(vm.vmid)
+        vm.status = "running"
+        await session.commit()
+        await session.refresh(vm)
+        return vm
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi khởi động VM: {str(e)}",
+        )
+
+
+@router.post("/{vm_id}/stop", response_model=VMResponse)
+async def stop_vm(
+    vm_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Stop a VM (owner or admin only)."""
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+
+    if not vm:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy VM",
+        )
+
+    if vm.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có quyền điều khiển VM này",
+        )
+
+    if vm.status == "stopped":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="VM đã dừng",
+        )
+
+    try:
+        proxmox = ProxmoxService()
+        await proxmox.stop_vm(vm.vmid)
+        vm.status = "stopped"
+        await session.commit()
+        await session.refresh(vm)
+        return vm
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi dừng VM: {str(e)}",
+        )
+
+
+@router.post("/{vm_id}/restart", response_model=VMResponse)
+async def restart_vm(
+    vm_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Restart a VM (stop then start, owner or admin only)."""
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+
+    if not vm:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy VM",
+        )
+
+    if vm.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có quyền điều khiển VM này",
+        )
+
+    if vm.status != "running":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="VM phải đang chạy để khởi động lại",
+        )
+
+    try:
+        proxmox = ProxmoxService()
+        await proxmox.stop_vm(vm.vmid)
+        # Wait a bit before starting
+        await asyncio.sleep(2)
+        await proxmox.start_vm(vm.vmid)
+        vm.status = "running"
+        await session.commit()
+        await session.refresh(vm)
+        return vm
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi khởi động lại VM: {str(e)}",
+        )

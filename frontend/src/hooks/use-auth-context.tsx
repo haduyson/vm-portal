@@ -5,6 +5,7 @@ import apiClient from '../services/api-client';
 interface UserInfo {
   username: string;
   is_admin: boolean;
+  telegram_chat_id?: string | null;
 }
 
 interface AuthContextType {
@@ -28,7 +29,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       apiClient
         .get('/auth/me')
         .then((res) => {
-          setUser({ username: res.data.username, is_admin: res.data.is_admin });
+          setUser({
+            username: res.data.username,
+            is_admin: res.data.is_admin,
+            telegram_chat_id: res.data.telegram_chat_id
+          });
         })
         .catch(() => {
           // Token invalid or expired
@@ -40,8 +45,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (username: string, password: string) => {
-    const data = await authService.login(username, password);
-    setUser({ username: data.username, is_admin: data.is_admin });
+    await authService.login(username, password);
+    // Fetch full user info after login
+    const res = await apiClient.get('/auth/me');
+    setUser({
+      username: res.data.username,
+      is_admin: res.data.is_admin,
+      telegram_chat_id: res.data.telegram_chat_id
+    });
     setIsAuthenticated(true);
   };
 
