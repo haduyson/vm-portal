@@ -35,7 +35,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await apiClient.get('/vms/');
+        const response = await apiClient.get('/vms');
         const vms = response.data.vms || [];
 
         setStats({

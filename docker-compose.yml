@@ -37,6 +37,7 @@ services:
       - ./backend:/app
       - /var/lock/qemu-server:/var/lock/qemu-server:ro
       - /etc/cloudflared:/etc/cloudflared
+      - /var/lib/vz/snippets:/var/lib/vz/snippets
 
   nginx:
     image: nginx:alpine

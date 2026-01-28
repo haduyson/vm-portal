@@ -19,6 +19,7 @@ from app.api import (
     vnc_websocket_router,
     admin_cloudflare_domain_router,
     admin_cloudflare_setup_router,
+    ssh_console_websocket_router,
 )
 
 
@@ -40,6 +41,7 @@ app = FastAPI(
     description="Internal Vietnamese VM Provisioning Portal",
     version="1.0.0",
     lifespan=lifespan,
+    redirect_slashes=False,  # Disable auto redirect to avoid mixed content issues
 )
 
 # Configure CORS for internal use
@@ -68,6 +70,7 @@ app.include_router(admin_os_template_router, prefix="/api")
 app.include_router(vnc_websocket_router, prefix="/api")
 app.include_router(admin_cloudflare_domain_router, prefix="/api")
 app.include_router(admin_cloudflare_setup_router, prefix="/api")
+app.include_router(ssh_console_websocket_router, prefix="/api")
 
 
 @app.get("/")

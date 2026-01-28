@@ -544,11 +544,27 @@ async def delete_vm(
 
     try:
         proxmox = await create_proxmox_service_for_vm(vm, session)
-        if vm.status == "running":
-            upid = await proxmox.stop_vm(vm.vmid)
-            # Wait for stop to complete before deleting
-            await proxmox.wait_for_task(upid, timeout=120)
-        await proxmox.delete_vm(vm.vmid)
+        # Get actual status from Proxmox (not from DB which may be stale)
+        try:
+            vm_status = await proxmox.get_vm_status(vm.vmid)
+            if vm_status.get("status") == "running":
+                upid = await proxmox.stop_vm(vm.vmid)
+                await proxmox.wait_for_task(upid, timeout=120)
+        except Exception:
+            pass  # VM may not exist in Proxmox, continue with DB cleanup
+
+        try:
+            await proxmox.delete_vm(vm.vmid)
+        except Exception as del_err:
+            if "does not exist" not in str(del_err).lower():
+                raise  # Re-raise if not "VM doesn't exist" error
+
+        # Cleanup cloud-init snippet file
+        try:
+            from app.services.cloud_init_generator import CloudInitGenerator
+            CloudInitGenerator.delete_from_snippets(vm.vmid)
+        except Exception:
+            pass  # Non-critical cleanup
 
         # Cleanup Cloudflare tunnel if SSH subdomain was configured
         if vm.ssh_domain:
@@ -582,6 +598,9 @@ async def delete_vm(
         await session.delete(vm)
         await session.commit()
     except Exception as e:
+        import traceback
+        print(f"Delete VM error: {e}")
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Lỗi khi xóa VM: {str(e)}",
@@ -881,8 +900,17 @@ async def reset_vm_password(
             detail="VM phải đang chạy để đổi mật khẩu",
         )
 
+    proxmox = await create_proxmox_service_for_vm(vm, session)
+
+    # Check if guest agent is running
+    agent_running = await proxmox.is_guest_agent_running(vm.vmid)
+    if not agent_running:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="QEMU Guest Agent chưa sẵn sàng. Vui lòng đợi 2-3 phút sau khi VM khởi động để cloud-init cài đặt xong. Hoặc SSH vào VM và chạy: apt install qemu-guest-agent && systemctl start qemu-guest-agent",
+        )
+
     try:
-        proxmox = await create_proxmox_service_for_vm(vm, session)
         await proxmox.set_vm_password(vm.vmid, "root", password_data.new_password)
 
         # Update password in database
@@ -894,7 +922,7 @@ async def reset_vm_password(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Lỗi khi đổi mật khẩu: {str(e)}. Đảm bảo QEMU Guest Agent đã được cài đặt và đang chạy trong VM.",
+            detail=f"Lỗi khi đổi mật khẩu: {str(e)}",
         )
 
 

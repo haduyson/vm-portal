@@ -254,7 +254,7 @@ export default function VMCreatePage() {
           payload.domain_id = selectedDomainId;
         }
       }
-      await apiClient.post('/vms/', payload);
+      await apiClient.post('/vms', payload);
       setSnackbar({ open: true, message: 'Đã khởi tạo máy ảo thành công!', severity: 'success' });
       setTimeout(() => navigate('/vms'), 1500);
     } catch (error: any) {

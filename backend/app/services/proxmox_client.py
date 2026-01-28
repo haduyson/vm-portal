@@ -310,15 +310,26 @@ class ProxmoxService:
         return await asyncio.to_thread(_set)
 
     async def configure_cloud_init_user(
-        self, vmid: int, username: str, password: str
+        self, vmid: int, username: str, password: str, userdata_file: str = None
     ):
-        """Configure cloud-init user credentials and network (DHCP)."""
-        return await self.set_vm_config(
-            vmid,
-            ciuser=username,
-            cipassword=password,
-            ipconfig0="ip=dhcp",
-        )
+        """Configure cloud-init user credentials, network, and optionally custom user-data."""
+        if userdata_file:
+            # Use custom user-data file (includes packages like qemu-guest-agent)
+            # Delete ciuser/cipassword to avoid conflict with cicustom (template may have ciuser preset)
+            return await self.set_vm_config(
+                vmid,
+                cicustom=f"user=local:snippets/{userdata_file}",
+                ipconfig0="ip=dhcp",
+                delete="ciuser,cipassword",
+            )
+        else:
+            # Fallback to basic ciuser/cipassword (no custom packages)
+            return await self.set_vm_config(
+                vmid,
+                ciuser=username,
+                cipassword=password,
+                ipconfig0="ip=dhcp",
+            )
 
     async def get_vm_rrddata(self, vmid: int, timeframe: str = "hour") -> list:
         """Get VM RRD data for resource usage charts."""
@@ -419,6 +430,17 @@ class ProxmoxService:
                 }
 
         return await asyncio.to_thread(_get_resources)
+
+    async def is_guest_agent_running(self, vmid: int) -> bool:
+        """Check if QEMU Guest Agent is running in the VM."""
+        def _ping_agent():
+            try:
+                self.proxmox.nodes(self.node).qemu(vmid).agent.ping.post()
+                return True
+            except Exception:
+                return False
+
+        return await asyncio.to_thread(_ping_agent)
 
     async def set_vm_password(self, vmid: int, username: str, password: str) -> Dict:
         """Set VM user password via QEMU Guest Agent."""

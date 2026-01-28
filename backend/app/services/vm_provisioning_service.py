@@ -49,6 +49,11 @@ class VMProvisioningService:
                 # Generate SSH credentials
                 ssh_username, ssh_password = self.cloud_init.generate_credentials()
 
+                # Generate and save custom cloud-init user-data (includes qemu-guest-agent)
+                user_data = self.cloud_init.generate_user_data(vm.name, ssh_username, ssh_password)
+                userdata_file = self.cloud_init.save_to_snippets(vm.vmid, user_data)
+                print(f"Cloud-init saved to snippets: {userdata_file}")
+
                 # Step 1: Clone template
                 upid = await self.proxmox.clone_template(
                     template_vmid=template_vmid,
@@ -63,11 +68,14 @@ class VMProvisioningService:
                 # Wait for Proxmox lock file to be released after clone
                 await self._wait_for_lock_release(vm.vmid, timeout=120)
 
-                # Step 3: Set hardware (cores, memory)
+                # Step 3: Set hardware (cores, memory, network, cloud-init drive, VGA)
                 await self.proxmox.set_vm_config(
                     vm.vmid,
                     cores=vm.cores,
                     memory=vm.memory_mb,
+                    net0="virtio,bridge=vmbr0",  # Enable network adapter
+                    ide2=f"{vm.storage}:cloudinit",  # Cloud-init drive
+                    vga="std",  # Override serial console from template
                 )
 
                 # Step 4: Resize disk to requested size (retry on lock/timeout)
@@ -82,9 +90,9 @@ class VMProvisioningService:
                         else:
                             raise
 
-                # Step 5: Configure cloud-init user credentials and network
+                # Step 5: Configure cloud-init with custom user-data (includes qemu-guest-agent)
                 await self.proxmox.configure_cloud_init_user(
-                    vm.vmid, ssh_username, ssh_password
+                    vm.vmid, ssh_username, ssh_password, userdata_file=userdata_file
                 )
 
                 # Step 6: Start VM
@@ -216,90 +224,156 @@ class VMProvisioningService:
         max_attempts: int = 40,
     ):
         """
-        Poll VM status until it has an IP address and is ready.
-        Runs as a background task with its own DB session.
+        Poll VM status until running, then poll for IP address.
+        Phase 1: Wait for VM to be running (update status immediately)
+        Phase 2: Wait for IP address (for notification and CF tunnel)
         """
         from app.database import AsyncSessionLocal
 
         attempts = 0
+        vm_is_running = False
 
-        while attempts < max_attempts:
-            await asyncio.sleep(30)  # Poll every 30 seconds
+        # Phase 1: Wait for VM to be running
+        while attempts < max_attempts and not vm_is_running:
+            await asyncio.sleep(15)  # Poll every 15 seconds for running status
             attempts += 1
 
             try:
-                # Get VM status from Proxmox
                 status = await self.proxmox.get_vm_status(vmid)
+                print(f"Poll {vmid} attempt {attempts}: status={status.get('status')}, ip={status.get('ip_address')}")
 
-                if status.get("status") == "running" and status.get("ip_address"):
-                    ip_address = status["ip_address"]
-
-                    # Update VM in database
+                if status.get("status") == "running":
+                    vm_is_running = True
+                    # Update status to running immediately (don't wait for IP)
                     async with AsyncSessionLocal() as session:
                         result = await session.execute(
                             select(VirtualMachine).where(VirtualMachine.id == vm_id)
                         )
                         vm = result.scalar_one_or_none()
-
-                        if vm:
+                        if vm and vm.status != "running":
                             vm.status = "running"
-                            vm.ip_address = ip_address
-
-                            # Setup Cloudflare tunnel SSH if subdomain was pre-set
-                            if vm.ssh_domain:
-                                try:
-                                    import importlib
-                                    # Find matching CloudflareDomain
-                                    _cf_domain_model = importlib.import_module("app.models.cloudflare-domain-model")
-                                    CloudflareDomain = _cf_domain_model.CloudflareDomain
-
-                                    domains_result = await session.execute(
-                                        select(CloudflareDomain).where(CloudflareDomain.is_active == True)
-                                    )
-                                    domains = domains_result.scalars().all()
-
-                                    for d in domains:
-                                        if vm.ssh_domain.endswith(f".{d.domain}"):
-                                            subdomain = vm.ssh_domain.replace(f".{d.domain}", "")
-                                            _cf_mod = importlib.import_module("app.services.cloudflare-tunnel-service")
-                                            cf_service = _cf_mod.CloudflareTunnelService(
-                                                api_token=d.cf_api_token,
-                                                zone_id=d.cf_zone_id,
-                                                tunnel_id=d.cf_tunnel_id,
-                                                tunnel_name=d.cf_tunnel_name,
-                                                base_domain=d.domain,
-                                                config_path=d.cloudflared_config_path,
-                                            )
-                                            await cf_service.add_ssh_ingress(subdomain, ip_address)
-                                            print(f"Cloudflare tunnel configured: {vm.ssh_domain} → {ip_address}")
-                                            break
-                                except Exception as cf_err:
-                                    print(f"Warning: Failed to setup CF tunnel for {vm.ssh_domain}: {cf_err}")
-                            elif not vm.ssh_domain:
-                                # Fallback: use legacy domain format
-                                vm.ssh_domain = f"{vm.name}.{settings.CF_TUNNEL_DOMAIN}"
-
                             await session.commit()
+                            print(f"VM {vmid} status updated to running")
 
-                            # Send Telegram notification
-                            telegram = await TelegramNotifier.from_db_config(session)
-                            await telegram.send_vm_ready(
-                                user_telegram_chat_id,
-                                vm.name,
-                                ip_address,
-                                vm.ssh_username or "unknown",
-                                vm.ssh_password or "unknown",
-                                vm.ssh_domain,
-                            )
-
-                            print(f"VM {vmid} is ready with IP {ip_address}")
-                            return
+                    # If IP is already available, skip to phase 2 completion
+                    if status.get("ip_address"):
+                        await self._complete_vm_setup(
+                            vm_id, vmid, status["ip_address"], user_telegram_chat_id
+                        )
+                        return
 
             except Exception as e:
-                print(f"Error polling VM {vmid} status (attempt {attempts}): {e}")
+                print(f"Error polling VM {vmid} running status (attempt {attempts}): {e}")
 
-        # Max attempts reached - mark as error
-        print(f"VM {vmid} failed to become ready after {max_attempts} attempts")
+        if not vm_is_running:
+            # VM never started running
+            await self._mark_vm_error(vm_id, vmid, user_telegram_chat_id, "VM không thể khởi động")
+            return
+
+        # Phase 2: Wait for IP address (additional 20 attempts)
+        ip_attempts = 0
+        max_ip_attempts = 20
+
+        while ip_attempts < max_ip_attempts:
+            await asyncio.sleep(15)  # Poll every 15 seconds for IP
+            ip_attempts += 1
+
+            try:
+                status = await self.proxmox.get_vm_status(vmid)
+                ip_address = status.get("ip_address")
+                print(f"Poll {vmid} IP attempt {ip_attempts}: ip={ip_address}")
+
+                if ip_address:
+                    await self._complete_vm_setup(
+                        vm_id, vmid, ip_address, user_telegram_chat_id
+                    )
+                    return
+
+            except Exception as e:
+                print(f"Error polling VM {vmid} IP (attempt {ip_attempts}): {e}")
+
+        # IP not found but VM is running - still okay, just log warning
+        print(f"Warning: VM {vmid} running but no IP after {max_ip_attempts} attempts")
+        # Don't mark as error - VM is working, just no guest agent IP
+
+    async def _complete_vm_setup(
+        self,
+        vm_id: int,
+        vmid: int,
+        ip_address: str,
+        user_telegram_chat_id: Optional[str] = None,
+    ):
+        """Complete VM setup with IP: update DB, setup CF tunnel, send notification."""
+        from app.database import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(VirtualMachine).where(VirtualMachine.id == vm_id)
+            )
+            vm = result.scalar_one_or_none()
+
+            if vm:
+                vm.status = "running"
+                vm.ip_address = ip_address
+
+                # Setup Cloudflare tunnel SSH if subdomain was pre-set
+                if vm.ssh_domain:
+                    try:
+                        import importlib
+                        _cf_domain_model = importlib.import_module("app.models.cloudflare-domain-model")
+                        CloudflareDomain = _cf_domain_model.CloudflareDomain
+
+                        domains_result = await session.execute(
+                            select(CloudflareDomain).where(CloudflareDomain.is_active == True)
+                        )
+                        domains = domains_result.scalars().all()
+
+                        for d in domains:
+                            if vm.ssh_domain.endswith(f".{d.domain}"):
+                                subdomain = vm.ssh_domain.replace(f".{d.domain}", "")
+                                _cf_mod = importlib.import_module("app.services.cloudflare-tunnel-service")
+                                cf_service = _cf_mod.CloudflareTunnelService(
+                                    api_token=d.cf_api_token,
+                                    zone_id=d.cf_zone_id,
+                                    tunnel_id=d.cf_tunnel_id,
+                                    tunnel_name=d.cf_tunnel_name,
+                                    base_domain=d.domain,
+                                    config_path=d.cloudflared_config_path,
+                                )
+                                await cf_service.add_ssh_ingress(subdomain, ip_address)
+                                print(f"Cloudflare tunnel configured: {vm.ssh_domain} → {ip_address}")
+                                break
+                    except Exception as cf_err:
+                        print(f"Warning: Failed to setup CF tunnel for {vm.ssh_domain}: {cf_err}")
+                elif not vm.ssh_domain:
+                    vm.ssh_domain = f"{vm.name}.{settings.CF_TUNNEL_DOMAIN}"
+
+                await session.commit()
+
+                # Send Telegram notification
+                telegram = await TelegramNotifier.from_db_config(session)
+                await telegram.send_vm_ready(
+                    user_telegram_chat_id,
+                    vm.name,
+                    ip_address,
+                    vm.ssh_username or "unknown",
+                    vm.ssh_password or "unknown",
+                    vm.ssh_domain,
+                )
+
+                print(f"VM {vmid} is ready with IP {ip_address}")
+
+    async def _mark_vm_error(
+        self,
+        vm_id: int,
+        vmid: int,
+        user_telegram_chat_id: Optional[str] = None,
+        error_message: str = "VM không thể khởi động sau nhiều lần thử",
+    ):
+        """Mark VM as error and send notification."""
+        from app.database import AsyncSessionLocal
+
+        print(f"VM {vmid} failed: {error_message}")
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(VirtualMachine).where(VirtualMachine.id == vm_id)
@@ -313,5 +387,5 @@ class VMProvisioningService:
             await telegram.send_vm_error(
                 user_telegram_chat_id,
                 vm.name if vm else f"VM {vmid}",
-                "VM không thể khởi động sau nhiều lần thử",
+                error_message,
             )

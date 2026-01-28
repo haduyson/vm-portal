@@ -72,7 +72,9 @@ async def vnc_websocket_proxy(
     Handles full VNC setup internally: PVE ticket auth, VNC proxy creation,
     and bidirectional WebSocket proxying.
     """
+    print(f"[VNC] WebSocket connection for vmid={vmid} from {websocket.client}")
     await websocket.accept()
+    print(f"[VNC] WebSocket accepted for vmid={vmid}")
 
     # Get VM to find Proxmox server details
     result = await session.execute(
@@ -142,6 +144,7 @@ async def vnc_websocket_proxy(
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
+    print(f"Connecting to Proxmox VNC: {proxmox_ws_url[:80]}...")
     try:
         async with websockets.connect(
             proxmox_ws_url,
@@ -151,15 +154,23 @@ async def vnc_websocket_proxy(
                 "Cookie": f"PVEAuthCookie={pve_auth['ticket']}",
             },
         ) as proxmox_ws:
+            print(f"Connected to Proxmox VNC for vmid {vmid}")
             async def client_to_proxmox():
                 try:
                     while True:
-                        data = await websocket.receive_bytes()
-                        await proxmox_ws.send(data)
+                        msg = await websocket.receive()
+                        if msg["type"] == "websocket.receive":
+                            if "bytes" in msg and msg["bytes"]:
+                                await proxmox_ws.send(msg["bytes"])
+                            elif "text" in msg and msg["text"]:
+                                await proxmox_ws.send(msg["text"].encode())
+                        elif msg["type"] == "websocket.disconnect":
+                            print(f"[VNC] Client disconnected for vmid {vmid}")
+                            break
                 except WebSocketDisconnect:
-                    pass
-                except Exception:
-                    pass
+                    print(f"[VNC] Client WebSocketDisconnect for vmid {vmid}")
+                except Exception as e:
+                    print(f"[VNC] client_to_proxmox error for vmid {vmid}: {type(e).__name__}: {e}")
 
             async def proxmox_to_client():
                 try:
@@ -168,8 +179,8 @@ async def vnc_websocket_proxy(
                             await websocket.send_bytes(message)
                         else:
                             await websocket.send_text(message)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[VNC] proxmox_to_client error for vmid {vmid}: {type(e).__name__}: {e}")
 
             await asyncio.gather(
                 client_to_proxmox(),
@@ -178,6 +189,7 @@ async def vnc_websocket_proxy(
             )
 
     except Exception as e:
+        print(f"VNC proxy error for vmid {vmid}: {type(e).__name__}: {e}")
         await websocket.close(code=1011, reason=f"Proxmox connection failed: {str(e)}")
     finally:
         try:
