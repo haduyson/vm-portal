@@ -10,6 +10,7 @@ class ProxmoxServerCreate(BaseModel):
     user: str = Field(default="root@pam")
     token_name: str = Field(..., min_length=1)
     token_value: str = Field(..., min_length=1)
+    password: Optional[str] = None
     excluded_storages: Optional[List[str]] = None
     cloud_init_template_vmid: Optional[int] = None
 
@@ -21,6 +22,7 @@ class ProxmoxServerUpdate(BaseModel):
     user: Optional[str] = None
     token_name: Optional[str] = None
     token_value: Optional[str] = None
+    password: Optional[str] = None
     node: Optional[str] = None
     is_active: Optional[bool] = None
     excluded_storages: Optional[List[str]] = None
@@ -35,6 +37,7 @@ class ProxmoxServerResponse(BaseModel):
     user: str
     token_name: str
     token_value_masked: str
+    has_password: bool
     node: str
     excluded_storages: List[str]
     cloud_init_template_vmid: Optional[int] = None

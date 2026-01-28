@@ -60,6 +60,7 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode }: Props) 
     setError(null);
 
     try {
+      // Validate VM is running and console is enabled
       const response = await apiClient.get(`/vms/${vmId}/console`);
       const info: ConsoleInfo = response.data;
       setConsoleInfo(info);
@@ -76,13 +77,11 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode }: Props) 
           // Dynamic import noVNC RFB
           const { default: RFB } = await import('@novnc/novnc/lib/rfb.js');
 
-          // Build WebSocket URL through nginx proxy to backend
+          // Backend handles full VNC setup (PVE ticket, proxy, WebSocket)
           const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-          const wsUrl = `${wsProtocol}//${window.location.host}/vnc-ws?node=${encodeURIComponent(info.node)}&vmid=${info.vmid}&port=${info.port}&vncticket=${encodeURIComponent(info.ticket)}`;
+          const wsUrl = `${wsProtocol}//${window.location.host}/vnc-ws?vmid=${info.vmid}`;
 
-          const rfb = new RFB(canvasRef.current, wsUrl, {
-            credentials: { password: info.ticket },
-          });
+          const rfb = new RFB(canvasRef.current, wsUrl);
 
           rfb.viewOnly = false;
           rfb.scaleViewport = true;

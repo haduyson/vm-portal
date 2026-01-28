@@ -13,6 +13,8 @@ class ProxmoxServer(Base):
     user = Column(String, default="root@pam", nullable=False)
     token_name = Column(String, nullable=False)
     token_value = Column(String, nullable=False)
+    # Password for PVE ticket auth (required for VNC console WebSocket)
+    password = Column(String, nullable=True)
     node = Column(String, nullable=False)
     # Comma-separated storage names excluded from user VM creation
     excluded_storages = Column(String, nullable=True, default="")

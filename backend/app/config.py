@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     PROXMOX_USER: str = "root@pam"
     PROXMOX_TOKEN_NAME: str = "automation"
     PROXMOX_TOKEN_VALUE: str = ""
+    PROXMOX_PASSWORD: str = ""
     PROXMOX_NODE: str = "pve"
     PROXMOX_VERIFY_SSL: bool = False
     PROXMOX_ISO_STORAGE: str = "local"
