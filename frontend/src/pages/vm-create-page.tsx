@@ -52,6 +52,7 @@ interface StorageItem {
   total_gb: number;
   used_gb: number;
   available_gb: number;
+  allocated_gb: number;
   active: boolean;
 }
 
@@ -320,7 +321,7 @@ export default function VMCreatePage() {
                         {storage.storage} ({storage.type})
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Còn lại: {storage.available_gb.toFixed(2)} GB / {storage.total_gb.toFixed(2)} GB
+                        Tổng: {storage.total_gb.toFixed(2)} GB | Đã cấp phát: {storage.allocated_gb.toFixed(2)} GB | Trống: {Math.max(storage.total_gb - storage.allocated_gb, 0).toFixed(2)} GB
                       </Typography>
                     </Box>
                   </MenuItem>

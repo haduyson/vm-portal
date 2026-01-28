@@ -59,6 +59,16 @@ class ProxmoxService:
             return storages
         return await asyncio.to_thread(_get)
 
+    async def get_storage_allocated_bytes(self, storage_name: str) -> int:
+        """Get total allocated (provisioned) bytes for a storage by summing all volume sizes."""
+        def _get():
+            try:
+                contents = self.proxmox.nodes(self.node).storage(storage_name).content.get()
+                return sum(item.get('size', 0) for item in contents)
+            except Exception:
+                return 0
+        return await asyncio.to_thread(_get)
+
     async def get_node_resources(self) -> Dict:
         """Get node-level CPU/RAM/Disk usage from Proxmox."""
         def _get_resources():

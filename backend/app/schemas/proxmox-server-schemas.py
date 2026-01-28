@@ -71,4 +71,5 @@ class ProxmoxStorageItem(BaseModel):
     total_gb: float
     used_gb: float
     available_gb: float
+    allocated_gb: float = 0
     active: bool

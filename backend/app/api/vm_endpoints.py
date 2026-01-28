@@ -659,23 +659,26 @@ async def get_server_storages_for_vm_creation(
         if server.excluded_storages:
             excluded = {s.strip() for s in server.excluded_storages.split(",") if s.strip()}
 
-        result_list = []
-        for s in storages:
-            storage_name = s.get('storage', '')
-            if storage_name in excluded:
-                continue
+        # Filter first, then fetch allocated in parallel
+        allowed = [s for s in storages if s.get('storage', '') not in excluded]
+        alloc_tasks = [proxmox.get_storage_allocated_bytes(s.get('storage', '')) for s in allowed]
+        alloc_results = await asyncio.gather(*alloc_tasks, return_exceptions=True)
 
+        result_list = []
+        for i, s in enumerate(allowed):
             total = s.get('total', 0)
             used = s.get('used', 0)
             avail = s.get('avail', 0)
+            alloc = alloc_results[i] if not isinstance(alloc_results[i], Exception) else 0
 
             result_list.append(_ps_schemas.ProxmoxStorageItem(
-                storage=storage_name,
+                storage=s.get('storage', ''),
                 type=s.get('type', ''),
                 content=s.get('content', ''),
                 total_gb=round(total / (1024 ** 3), 2) if total else 0,
                 used_gb=round(used / (1024 ** 3), 2) if used else 0,
                 available_gb=round(avail / (1024 ** 3), 2) if avail else 0,
+                allocated_gb=round(alloc / (1024 ** 3), 2) if alloc else 0,
                 active=s.get('active', 0) == 1,
             ))
 

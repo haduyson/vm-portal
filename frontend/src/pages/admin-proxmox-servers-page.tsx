@@ -74,6 +74,7 @@ interface ProxmoxStorageItem {
   total_gb: number;
   used_gb: number;
   available_gb: number;
+  allocated_gb: number;
   active: boolean;
 }
 
@@ -740,6 +741,7 @@ export default function AdminProxmoxServersPage() {
                     <TableCell>Loại</TableCell>
                     <TableCell>Content</TableCell>
                     <TableCell align="right">Tổng (GB)</TableCell>
+                    <TableCell align="right">Đã cấp phát (GB)</TableCell>
                     <TableCell align="right">Còn lại (GB)</TableCell>
                     <TableCell>Trạng thái</TableCell>
                     <TableCell align="center">Cho phép tạo VM</TableCell>
@@ -767,6 +769,7 @@ export default function AdminProxmoxServersPage() {
                           </Typography>
                         </TableCell>
                         <TableCell align="right">{storage.total_gb.toFixed(2)}</TableCell>
+                        <TableCell align="right">{storage.allocated_gb.toFixed(2)}</TableCell>
                         <TableCell align="right">{storage.available_gb.toFixed(2)}</TableCell>
                         <TableCell>
                           <Chip

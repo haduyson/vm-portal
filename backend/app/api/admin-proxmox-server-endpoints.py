@@ -1,3 +1,4 @@
+import asyncio
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -282,11 +283,17 @@ async def get_proxmox_server_storages(
         proxmox = ProxmoxService.from_server(server)
         storages = await proxmox.get_storages()
 
+        # Fetch allocated bytes for all storages in parallel
+        storage_names = [s.get('storage', '') for s in storages]
+        allocated_tasks = [proxmox.get_storage_allocated_bytes(name) for name in storage_names]
+        allocated_results = await asyncio.gather(*allocated_tasks, return_exceptions=True)
+
         result_list = []
-        for s in storages:
+        for i, s in enumerate(storages):
             total = s.get('total', 0)
             used = s.get('used', 0)
             avail = s.get('avail', 0)
+            alloc = allocated_results[i] if not isinstance(allocated_results[i], Exception) else 0
 
             result_list.append(schemas.ProxmoxStorageItem(
                 storage=s.get('storage', ''),
@@ -295,6 +302,7 @@ async def get_proxmox_server_storages(
                 total_gb=round(total / (1024 ** 3), 2) if total else 0,
                 used_gb=round(used / (1024 ** 3), 2) if used else 0,
                 available_gb=round(avail / (1024 ** 3), 2) if avail else 0,
+                allocated_gb=round(alloc / (1024 ** 3), 2) if alloc else 0,
                 active=s.get('active', 0) == 1,
             ))
 
