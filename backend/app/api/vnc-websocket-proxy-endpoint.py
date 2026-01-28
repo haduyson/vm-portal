@@ -73,7 +73,7 @@ async def vnc_websocket_proxy(
             proxmox_ws_url,
             ssl=ssl_context,
             open_timeout=10,
-            additional_headers={"Authorization": auth_header},
+            extra_headers={"Authorization": auth_header},
         ) as proxmox_ws:
             # Start bidirectional proxy tasks
             async def client_to_proxmox():
