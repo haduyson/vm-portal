@@ -58,7 +58,7 @@ class VMProvisioningService:
             await self.proxmox.wait_for_task(upid, timeout=600)
 
             # Brief delay to ensure clone lock is fully released
-            await asyncio.sleep(5)
+            await asyncio.sleep(15)
 
             # Step 3: Set hardware (cores, memory)
             await self.proxmox.set_vm_config(
