@@ -57,6 +57,9 @@ class VMProvisioningService:
             # Step 2: Wait for clone to complete
             await self.proxmox.wait_for_task(upid, timeout=600)
 
+            # Brief delay to ensure clone lock is fully released
+            await asyncio.sleep(5)
+
             # Step 3: Set hardware (cores, memory)
             await self.proxmox.set_vm_config(
                 vm.vmid,
@@ -64,8 +67,17 @@ class VMProvisioningService:
                 memory=vm.memory_mb,
             )
 
-            # Step 4: Resize disk to requested size
-            await self.proxmox.resize_disk(vm.vmid, "scsi0", vm.disk_gb)
+            # Step 4: Resize disk to requested size (retry on lock/timeout)
+            for attempt in range(3):
+                try:
+                    await self.proxmox.resize_disk(vm.vmid, "scsi0", vm.disk_gb)
+                    break
+                except Exception as resize_err:
+                    if attempt < 2 and ("lock" in str(resize_err).lower() or "timeout" in str(resize_err).lower()):
+                        print(f"Resize attempt {attempt + 1} failed, retrying: {resize_err}")
+                        await asyncio.sleep(10)
+                    else:
+                        raise
 
             # Step 5: Configure cloud-init user credentials and network
             await self.proxmox.configure_cloud_init_user(
