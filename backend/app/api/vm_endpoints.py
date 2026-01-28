@@ -136,6 +136,18 @@ async def create_vm(
             storage_name = vm_data.storage or settings.PROXMOX_VM_STORAGE
             server_id = None
 
+        # Check cloud-init template availability
+        is_cloudinit = vm_data.os_type.endswith("-cloudinit")
+        template_vmid = None
+        if is_cloudinit:
+            if server and server.cloud_init_template_vmid:
+                template_vmid = server.cloud_init_template_vmid
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Server này chưa cấu hình template Cloud-Init",
+                )
+
         vmid = await provisioning_service.proxmox.get_next_vmid()
 
         # Create VM record in database
@@ -158,13 +170,23 @@ async def create_vm(
         await session.refresh(new_vm)
 
         # Start provisioning in background
-        asyncio.create_task(
-            provisioning_service.provision_vm(
-                session,
-                new_vm.id,
-                current_user.telegram_chat_id,
+        if is_cloudinit and template_vmid:
+            asyncio.create_task(
+                provisioning_service.provision_vm_cloudinit(
+                    session,
+                    new_vm.id,
+                    template_vmid=template_vmid,
+                    user_telegram_chat_id=current_user.telegram_chat_id,
+                )
             )
-        )
+        else:
+            asyncio.create_task(
+                provisioning_service.provision_vm(
+                    session,
+                    new_vm.id,
+                    current_user.telegram_chat_id,
+                )
+            )
 
         return new_vm
 

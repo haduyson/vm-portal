@@ -44,26 +44,7 @@ interface ProxmoxServer {
   token_name: string;
   node: string;
   excluded_storages: string[];
-  is_active: boolean;
-}
-
-interface ProxmoxServerCreate {
-  name: string;
-  host: string;
-  port: number;
-  user: string;
-  token_name: string;
-  token_value: string;
-}
-
-interface ProxmoxServerUpdate {
-  name: string;
-  host: string;
-  port: number;
-  user: string;
-  token_name: string;
-  token_value?: string;
-  node?: string;
+  cloud_init_template_vmid: number | null;
   is_active: boolean;
 }
 
@@ -114,6 +95,7 @@ export default function AdminProxmoxServersPage() {
   const [node, setNode] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [detectedNode, setDetectedNode] = useState('');
+  const [cloudInitTemplateVmid, setCloudInitTemplateVmid] = useState<string>('');
 
   // Alerts
   const [successMessage, setSuccessMessage] = useState('');
@@ -146,6 +128,7 @@ export default function AdminProxmoxServersPage() {
     setIsActive(true);
     setShowTokenValue(false);
     setDetectedNode('');
+    setCloudInitTemplateVmid('');
   };
 
   const handleOpenAddDialog = () => {
@@ -164,6 +147,7 @@ export default function AdminProxmoxServersPage() {
     setTokenValue('');
     setNode(server.node);
     setIsActive(server.is_active);
+    setCloudInitTemplateVmid(server.cloud_init_template_vmid?.toString() || '');
     setEditMode(true);
     setCurrentServerId(server.id);
     setDialogOpen(true);
@@ -220,14 +204,17 @@ export default function AdminProxmoxServersPage() {
       setSuccessMessage('');
       setErrorMessage('');
 
+      const templateVmid = cloudInitTemplateVmid.trim() ? parseInt(cloudInitTemplateVmid) : null;
+
       if (editMode && currentServerId) {
-        const payload: ProxmoxServerUpdate = {
+        const payload: Record<string, unknown> = {
           name,
           host,
           port,
           user,
           token_name: tokenName,
           is_active: isActive,
+          cloud_init_template_vmid: templateVmid,
         };
         if (tokenValue.trim()) {
           payload.token_value = tokenValue;
@@ -238,13 +225,14 @@ export default function AdminProxmoxServersPage() {
         await apiClient.put(`/admin/proxmox-servers/${currentServerId}`, payload);
         setSuccessMessage('Đã cập nhật server thành công');
       } else {
-        const payload: ProxmoxServerCreate = {
+        const payload: Record<string, unknown> = {
           name,
           host,
           port,
           user,
           token_name: tokenName,
           token_value: tokenValue,
+          cloud_init_template_vmid: templateVmid,
         };
         await apiClient.post('/admin/proxmox-servers', payload);
         setSuccessMessage('Đã thêm server thành công');
@@ -463,6 +451,14 @@ export default function AdminProxmoxServersPage() {
                 </TableCell>
                 <TableCell>
                   <Chip label={server.node} size="small" />
+                  {server.cloud_init_template_vmid && (
+                    <Chip
+                      label={`CI: ${server.cloud_init_template_vmid}`}
+                      size="small"
+                      color="info"
+                      sx={{ ml: 1 }}
+                    />
+                  )}
                 </TableCell>
                 <TableCell>
                   <Chip
@@ -613,6 +609,15 @@ export default function AdminProxmoxServersPage() {
                 />
               </>
             )}
+
+            <TextField
+              label="Cloud-Init Template VM ID"
+              type="number"
+              value={cloudInitTemplateVmid}
+              onChange={(e) => setCloudInitTemplateVmid(e.target.value)}
+              fullWidth
+              helperText="VM ID của template cloud-init (VD: 9000). Để trống nếu không dùng cloud-init."
+            />
           </Stack>
         </DialogContent>
         <DialogActions>

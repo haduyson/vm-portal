@@ -210,6 +210,64 @@ class ProxmoxService:
 
         return await asyncio.to_thread(_clone_vm)
 
+    async def clone_template(
+        self, template_vmid: int, new_vmid: int, name: str, storage: str
+    ) -> str:
+        """Clone a template VM to a new VM on the specified storage. Returns task UPID."""
+        def _clone():
+            return self.proxmox.nodes(self.node).qemu(template_vmid).clone.post(
+                newid=new_vmid,
+                name=name,
+                full=1,
+                storage=storage,
+            )
+        return await asyncio.to_thread(_clone)
+
+    async def wait_for_task(self, upid: str, timeout: int = 300, poll_interval: int = 3):
+        """Wait for a Proxmox task to complete. Raises on failure."""
+        import time
+        start = time.time()
+        while time.time() - start < timeout:
+            status = await self._get_task_status(upid)
+            if status.get("status") == "stopped":
+                if status.get("exitstatus") == "OK":
+                    return
+                raise Exception(f"Task failed: {status.get('exitstatus', 'unknown error')}")
+            await asyncio.sleep(poll_interval)
+        raise Exception(f"Task timed out after {timeout}s")
+
+    async def _get_task_status(self, upid: str) -> Dict:
+        """Get status of a Proxmox task."""
+        def _get():
+            return self.proxmox.nodes(self.node).tasks(upid).status.get()
+        return await asyncio.to_thread(_get)
+
+    async def resize_disk(self, vmid: int, disk: str, size_gb: int):
+        """Resize a VM disk to the specified size in GB."""
+        def _resize():
+            return self.proxmox.nodes(self.node).qemu(vmid).resize.put(
+                disk=disk,
+                size=f"{size_gb}G",
+            )
+        return await asyncio.to_thread(_resize)
+
+    async def set_vm_config(self, vmid: int, **kwargs) -> Dict:
+        """Set VM configuration parameters."""
+        def _set():
+            return self.proxmox.nodes(self.node).qemu(vmid).config.put(**kwargs)
+        return await asyncio.to_thread(_set)
+
+    async def configure_cloud_init_user(
+        self, vmid: int, username: str, password: str
+    ):
+        """Configure cloud-init user credentials and network (DHCP)."""
+        return await self.set_vm_config(
+            vmid,
+            ciuser=username,
+            cipassword=password,
+            ipconfig0="ip=dhcp",
+        )
+
     async def get_vm_rrddata(self, vmid: int, timeframe: str = "hour") -> list:
         """Get VM RRD data for resource usage charts."""
         def _get_rrddata():

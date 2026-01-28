@@ -73,7 +73,7 @@ export default function VMCreatePage() {
     cores: 2,
     ram_gb: 4,
     disk_gb: 50,
-    os_type: 'ubuntu-24.04',
+    os_type: 'ubuntu-24.04-cloudinit',
   });
 
   useEffect(() => {
@@ -407,7 +407,8 @@ export default function VMCreatePage() {
                 label="Hệ điều hành"
                 onChange={(e) => setFormData({ ...formData, os_type: e.target.value })}
               >
-                <MenuItem value="ubuntu-server-24.04">Ubuntu Server 24.04</MenuItem>
+                <MenuItem value="ubuntu-24.04-cloudinit">Ubuntu 24.04 (Cloud-Init) — Nhanh</MenuItem>
+                <MenuItem value="ubuntu-server-24.04">Ubuntu Server 24.04 (ISO)</MenuItem>
               </Select>
             </FormControl>
 

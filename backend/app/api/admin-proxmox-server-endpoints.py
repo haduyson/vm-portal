@@ -43,6 +43,7 @@ def _server_to_response(server: ProxmoxServer) -> schemas.ProxmoxServerResponse:
         token_value_masked=_mask_token(server.token_value),
         node=server.node,
         excluded_storages=_parse_excluded_storages(server.excluded_storages),
+        cloud_init_template_vmid=server.cloud_init_template_vmid,
         is_active=server.is_active,
         created_at=server.created_at,
         updated_at=server.updated_at,
@@ -112,6 +113,7 @@ async def create_proxmox_server(
         token_value=data.token_value,
         node=node_name,
         excluded_storages=",".join(data.excluded_storages) if data.excluded_storages else "",
+        cloud_init_template_vmid=data.cloud_init_template_vmid,
     )
     session.add(server)
     await session.commit()

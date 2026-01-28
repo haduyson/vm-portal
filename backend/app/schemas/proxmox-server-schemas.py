@@ -11,6 +11,7 @@ class ProxmoxServerCreate(BaseModel):
     token_name: str = Field(..., min_length=1)
     token_value: str = Field(..., min_length=1)
     excluded_storages: Optional[List[str]] = None
+    cloud_init_template_vmid: Optional[int] = None
 
 
 class ProxmoxServerUpdate(BaseModel):
@@ -23,6 +24,7 @@ class ProxmoxServerUpdate(BaseModel):
     node: Optional[str] = None
     is_active: Optional[bool] = None
     excluded_storages: Optional[List[str]] = None
+    cloud_init_template_vmid: Optional[int] = None
 
 
 class ProxmoxServerResponse(BaseModel):
@@ -35,6 +37,7 @@ class ProxmoxServerResponse(BaseModel):
     token_value_masked: str
     node: str
     excluded_storages: List[str]
+    cloud_init_template_vmid: Optional[int] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime

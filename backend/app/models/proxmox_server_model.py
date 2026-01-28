@@ -16,6 +16,8 @@ class ProxmoxServer(Base):
     node = Column(String, nullable=False)
     # Comma-separated storage names excluded from user VM creation
     excluded_storages = Column(String, nullable=True, default="")
+    # Template VM ID for cloud-init based provisioning (clone source)
+    cloud_init_template_vmid = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
