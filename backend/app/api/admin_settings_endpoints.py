@@ -21,6 +21,7 @@ SETTING_DEFAULTS = {
     "feature_novnc_console": "false",
     "feature_2fa_required": "false",
     "refresh_token_expiry_days": "7",
+    "temp_password_expiry_minutes": "60",
 }
 
 
@@ -47,6 +48,7 @@ async def get_all_settings(
         feature_novnc_console=await _get_setting_with_default(session, "feature_novnc_console"),
         feature_2fa_required=await _get_setting_with_default(session, "feature_2fa_required"),
         refresh_token_expiry_days=await _get_setting_with_default(session, "refresh_token_expiry_days"),
+        temp_password_expiry_minutes=await _get_setting_with_default(session, "temp_password_expiry_minutes"),
         telegram_bot_token=bot_token,
         telegram_bot_token_masked=masked_token,
         telegram_default_chat_id=telegram_config["default_chat_id"],
@@ -74,6 +76,10 @@ async def update_all_settings(
     if settings_update.refresh_token_expiry_days is not None:
         await set_setting(session, "refresh_token_expiry_days", settings_update.refresh_token_expiry_days)
         changes.append(f"refresh_token_expiry_days={settings_update.refresh_token_expiry_days}")
+
+    if settings_update.temp_password_expiry_minutes is not None:
+        await set_setting(session, "temp_password_expiry_minutes", settings_update.temp_password_expiry_minutes)
+        changes.append(f"temp_password_expiry_minutes={settings_update.temp_password_expiry_minutes}")
 
     if settings_update.telegram_bot_token is not None:
         await set_setting(session, "telegram_bot_token", settings_update.telegram_bot_token)

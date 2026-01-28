@@ -106,12 +106,17 @@ Vui lòng liên hệ quản trị viên."""
         chat_id: str,
         username: str,
         new_password: str,
+        expiry_minutes: int | None = None,
     ) -> bool:
         """Send password reset notification."""
+        expiry_line = ""
+        if expiry_minutes:
+            expiry_line = f"\n⏰ *Hiệu lực:* {expiry_minutes} phút kể từ lúc nhận tin nhắn này."
+
         message = f"""🔐 *Đặt lại mật khẩu VM Portal*
 
 *Tài khoản:* `{username}`
-*Mật khẩu mới:* `{new_password}`
+*Mật khẩu mới:* `{new_password}`{expiry_line}
 
 Vui lòng đăng nhập và đổi mật khẩu tại trang Hồ sơ."""
 

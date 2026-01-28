@@ -14,6 +14,13 @@ import {
   IconButton,
   InputAdornment,
   Chip,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
 } from '@mui/material';
 import {
   Visibility,
@@ -26,10 +33,20 @@ interface AllSettings {
   feature_novnc_console: string;
   feature_2fa_required: string;
   refresh_token_expiry_days: string;
+  temp_password_expiry_minutes: string;
   telegram_bot_token: string | null;
   telegram_bot_token_masked: string;
   telegram_default_chat_id: string | null;
   telegram_source: string;
+}
+
+interface OsTemplate {
+  id: number;
+  label: string;
+  os_type_key: string;
+  description: string | null;
+  is_enabled: boolean;
+  sort_order: number;
 }
 
 export default function AdminSettingsPage() {
@@ -37,6 +54,7 @@ export default function AdminSettingsPage() {
   const [featureNoVNC, setFeatureNoVNC] = useState(false);
   const [feature2FA, setFeature2FA] = useState(false);
   const [refreshExpiry, setRefreshExpiry] = useState('7');
+  const [tempPasswordExpiry, setTempPasswordExpiry] = useState('60');
   const [botToken, setBotToken] = useState('');
   const [chatId, setChatId] = useState('');
   const [showToken, setShowToken] = useState(false);
@@ -44,9 +62,11 @@ export default function AdminSettingsPage() {
   const [testLoading, setTestLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [osTemplates, setOsTemplates] = useState<OsTemplate[]>([]);
 
   useEffect(() => {
     loadSettings();
+    loadOsTemplates();
   }, []);
 
   const loadSettings = async () => {
@@ -57,6 +77,7 @@ export default function AdminSettingsPage() {
       setFeatureNoVNC(data.feature_novnc_console === 'true');
       setFeature2FA(data.feature_2fa_required === 'true');
       setRefreshExpiry(data.refresh_token_expiry_days || '7');
+      setTempPasswordExpiry(data.temp_password_expiry_minutes || '60');
       setChatId(data.telegram_default_chat_id || '');
     } catch {
       setErrorMessage('Không thể tải cấu hình');
@@ -73,6 +94,7 @@ export default function AdminSettingsPage() {
         feature_novnc_console: featureNoVNC ? 'true' : 'false',
         feature_2fa_required: feature2FA ? 'true' : 'false',
         refresh_token_expiry_days: refreshExpiry,
+        temp_password_expiry_minutes: tempPasswordExpiry,
       };
 
       if (botToken.trim()) {
@@ -105,6 +127,26 @@ export default function AdminSettingsPage() {
       setErrorMessage(error.response?.data?.detail || 'Không thể gửi tin nhắn thử');
     } finally {
       setTestLoading(false);
+    }
+  };
+
+  const loadOsTemplates = async () => {
+    try {
+      const response = await apiClient.get('/admin/os-templates');
+      setOsTemplates(response.data);
+    } catch {
+      // OS templates not loaded - non-critical
+    }
+  };
+
+  const toggleOsTemplate = async (templateId: number, enabled: boolean) => {
+    try {
+      await apiClient.put(`/admin/os-templates/${templateId}`, { is_enabled: enabled });
+      setOsTemplates((prev) =>
+        prev.map((t) => (t.id === templateId ? { ...t, is_enabled: enabled } : t))
+      );
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể cập nhật OS template');
     }
   };
 
@@ -159,15 +201,26 @@ export default function AdminSettingsPage() {
         <CardContent>
           <Typography variant="h6" gutterBottom>Phiên đăng nhập</Typography>
           <Divider sx={{ mb: 2 }} />
-          <TextField
-            label="Thời hạn refresh token (ngày)"
-            type="number"
-            value={refreshExpiry}
-            onChange={(e) => setRefreshExpiry(e.target.value)}
-            fullWidth
-            inputProps={{ min: 1, max: 90 }}
-            helperText="Số ngày refresh token hợp lệ (1-90). Mặc định: 7 ngày"
-          />
+          <Stack spacing={3}>
+            <TextField
+              label="Thời hạn refresh token (ngày)"
+              type="number"
+              value={refreshExpiry}
+              onChange={(e) => setRefreshExpiry(e.target.value)}
+              fullWidth
+              inputProps={{ min: 1, max: 90 }}
+              helperText="Số ngày refresh token hợp lệ (1-90). Mặc định: 7 ngày"
+            />
+            <TextField
+              label="Thời hạn mật khẩu tạm thời (phút)"
+              type="number"
+              value={tempPasswordExpiry}
+              onChange={(e) => setTempPasswordExpiry(e.target.value)}
+              fullWidth
+              inputProps={{ min: 1, max: 10080 }}
+              helperText="Mật khẩu tạm thời (đặt lại) hết hạn sau bao nhiêu phút. Mặc định: 60 phút"
+            />
+          </Stack>
         </CardContent>
       </Card>
 
@@ -230,6 +283,43 @@ export default function AdminSettingsPage() {
           </Stack>
         </CardContent>
       </Card>
+
+      {/* OS Templates */}
+      {osTemplates.length > 0 && (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Hệ điều hành</Typography>
+            <Divider sx={{ mb: 2 }} />
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Tên hiển thị</TableCell>
+                    <TableCell>Mã OS</TableCell>
+                    <TableCell align="center">Bật/Tắt</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {osTemplates.map((template) => (
+                    <TableRow key={template.id}>
+                      <TableCell>{template.label}</TableCell>
+                      <TableCell>
+                        <Chip label={template.os_type_key} size="small" variant="outlined" />
+                      </TableCell>
+                      <TableCell align="center">
+                        <Switch
+                          checked={template.is_enabled}
+                          onChange={(e) => toggleOsTemplate(template.id, e.target.checked)}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Save Button */}
       <Button

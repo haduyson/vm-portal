@@ -18,13 +18,16 @@ from app.services.proxmox_client import (
     create_proxmox_service_for_server,
 )
 from app.config import settings
+from app.models.os_template_model import OsTemplate
 import asyncio
 import importlib
 
 _ps_schemas = importlib.import_module("app.schemas.proxmox-server-schemas")
+_os_schemas = importlib.import_module("app.schemas.os-template-schemas")
 
 router = APIRouter(prefix="/vms", tags=["virtual-machines"])
 proxmox_servers_public_router = APIRouter(tags=["proxmox-servers-public"])
+os_templates_public_router = APIRouter(tags=["os-templates-public"])
 
 
 @router.post("", response_model=VMResponse, status_code=status.HTTP_201_CREATED)
@@ -710,3 +713,22 @@ async def get_server_storages_for_vm_creation(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Lỗi khi lấy storage: {str(e)}",
         )
+
+
+# --- User-facing endpoint: available OS templates ---
+
+@os_templates_public_router.get(
+    "/os-templates/available",
+    response_model=List[_os_schemas.OsTemplateResponse],
+)
+async def list_available_os_templates(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """List enabled OS templates ordered by sort_order."""
+    result = await session.execute(
+        select(OsTemplate)
+        .where(OsTemplate.is_enabled == True)
+        .order_by(OsTemplate.sort_order, OsTemplate.id)
+    )
+    return result.scalars().all()

@@ -25,6 +25,7 @@ class ProxmoxService:
             token_name=token_name or settings.PROXMOX_TOKEN_NAME,
             token_value=token_value or settings.PROXMOX_TOKEN_VALUE,
             verify_ssl=settings.PROXMOX_VERIFY_SSL,
+            timeout=90,
         )
         self.node = node or settings.PROXMOX_NODE
         self.iso_storage = iso_storage or "local"
@@ -107,7 +108,7 @@ class ProxmoxService:
     async def get_next_vmid(self) -> int:
         """Get the next available VMID from Proxmox."""
         def _get_next_vmid():
-            return self.proxmox.cluster.nextid.get()
+            return int(self.proxmox.cluster.nextid.get())
 
         return await asyncio.to_thread(_get_next_vmid)
 

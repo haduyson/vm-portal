@@ -1,10 +1,21 @@
+import re
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class VMCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=50)
+
+    @field_validator("name")
+    @classmethod
+    def validate_dns_name(cls, v: str) -> str:
+        v = v.strip()
+        if not re.match(r'^[a-zA-Z][a-zA-Z0-9\-]*$', v):
+            raise ValueError(
+                "Tên VM chỉ được chứa chữ cái, số và dấu gạch ngang, bắt đầu bằng chữ cái (VD: my-vm-01)"
+            )
+        return v
     cores: int = Field(..., ge=1, le=16)
     memory_mb: int = Field(..., ge=512, le=32768)
     disk_gb: int = Field(..., ge=10, le=500)

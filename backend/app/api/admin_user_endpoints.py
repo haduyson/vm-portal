@@ -14,8 +14,10 @@ from app.schemas.admin_schemas import (
     AdminUserUpdate,
     AdminPasswordResetResponse,
 )
+from datetime import datetime, timedelta
 from app.core.generate_random_password import generate_random_password
 from app.services.telegram_notifier import TelegramNotifier
+from app.services.system_settings_service import get_setting
 from app.api.admin_shared_helpers import log_audit
 
 router = APIRouter(prefix="/admin", tags=["admin-users"])
@@ -170,12 +172,21 @@ async def reset_user_password(
 
     new_password = generate_random_password()
     user.hashed_password = hash_password(new_password)
+
+    # Set temp password expiry
+    expiry_val = await get_setting(session, "temp_password_expiry_minutes")
+    expiry_minutes = int(expiry_val) if expiry_val else 60
+    user.temp_password_expires_at = datetime.utcnow() + timedelta(minutes=expiry_minutes)
+
     await session.commit()
 
     telegram_sent = False
     if user.telegram_chat_id:
         telegram = await TelegramNotifier.from_db_config(session)
-        telegram_sent = await telegram.send_password_reset(user.telegram_chat_id, user.username, new_password)
+        telegram_sent = await telegram.send_password_reset(
+            user.telegram_chat_id, user.username, new_password,
+            expiry_minutes=expiry_minutes,
+        )
 
     await log_audit(
         session, admin.id, "reset_password", "user", user.id,

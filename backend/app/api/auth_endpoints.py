@@ -17,6 +17,7 @@ from app.schemas.auth_schemas import (
 )
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime, timedelta
 from app.core.generate_random_password import generate_random_password
 from app.services.telegram_notifier import TelegramNotifier
 from app.services.system_settings_service import get_setting
@@ -49,6 +50,13 @@ async def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Tên đăng nhập hoặc mật khẩu không đúng",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Check if temp password has expired
+    if user.temp_password_expires_at and datetime.utcnow() > user.temp_password_expires_at:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Mật khẩu tạm thời đã hết hạn. Vui lòng yêu cầu đặt lại mật khẩu mới.",
         )
 
     # Check if 2FA is enabled for this user
@@ -196,6 +204,7 @@ async def update_profile(
                 detail="Mật khẩu hiện tại không đúng",
             )
         current_user.hashed_password = hash_password(profile_update.new_password)
+        current_user.temp_password_expires_at = None  # Clear temp password expiry
 
     if profile_update.telegram_chat_id is not None:
         current_user.telegram_chat_id = profile_update.telegram_chat_id
@@ -266,10 +275,19 @@ async def forgot_password(
 
     new_password = generate_random_password()
     user.hashed_password = hash_password(new_password)
+
+    # Set temp password expiry
+    expiry_val = await get_setting(session, "temp_password_expiry_minutes")
+    expiry_minutes = int(expiry_val) if expiry_val else 60
+    user.temp_password_expires_at = datetime.utcnow() + timedelta(minutes=expiry_minutes)
+
     await session.commit()
 
     telegram = await TelegramNotifier.from_db_config(session)
-    await telegram.send_password_reset(user.telegram_chat_id, user.username, new_password)
+    await telegram.send_password_reset(
+        user.telegram_chat_id, user.username, new_password,
+        expiry_minutes=expiry_minutes,
+    )
 
     return {"message": "Mật khẩu mới đã được gửi qua Telegram."}
 

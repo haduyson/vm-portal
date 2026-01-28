@@ -14,6 +14,9 @@ from app.api import (
     vm_network_router,
     admin_proxmox_server_router,
     proxmox_servers_public_router,
+    os_templates_public_router,
+    admin_os_template_router,
+    vnc_websocket_router,
 )
 
 
@@ -58,6 +61,9 @@ app.include_router(admin_settings_router, prefix="/api")
 app.include_router(admin_audit_router, prefix="/api")
 app.include_router(admin_proxmox_server_router, prefix="/api")
 app.include_router(proxmox_servers_public_router, prefix="/api")
+app.include_router(os_templates_public_router, prefix="/api")
+app.include_router(admin_os_template_router, prefix="/api")
+app.include_router(vnc_websocket_router, prefix="/api")
 
 
 @app.get("/")

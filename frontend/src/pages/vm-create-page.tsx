@@ -56,6 +56,15 @@ interface StorageItem {
   active: boolean;
 }
 
+interface OsTemplateOption {
+  id: number;
+  label: string;
+  os_type_key: string;
+  description: string | null;
+  is_enabled: boolean;
+  sort_order: number;
+}
+
 export default function VMCreatePage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -67,6 +76,8 @@ export default function VMCreatePage() {
   const [storages, setStorages] = useState<StorageItem[]>([]);
   const [storagesLoading, setStoragesLoading] = useState(false);
   const [selectedStorage, setSelectedStorage] = useState<string>('');
+  const [osTemplates, setOsTemplates] = useState<OsTemplateOption[]>([]);
+  const [osTemplatesLoading, setOsTemplatesLoading] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -79,6 +90,7 @@ export default function VMCreatePage() {
   useEffect(() => {
     fetchQuota();
     fetchServers();
+    fetchOsTemplates();
   }, []);
 
   const fetchQuota = async () => {
@@ -110,6 +122,22 @@ export default function VMCreatePage() {
       console.error('Error fetching servers:', error);
     } finally {
       setServersLoading(false);
+    }
+  };
+
+  const fetchOsTemplates = async () => {
+    setOsTemplatesLoading(true);
+    try {
+      const response = await apiClient.get('/os-templates/available');
+      const data: OsTemplateOption[] = response.data;
+      setOsTemplates(data);
+      if (data.length > 0) {
+        setFormData((prev) => ({ ...prev, os_type: data[0].os_type_key }));
+      }
+    } catch (error) {
+      console.error('Error fetching OS templates:', error);
+    } finally {
+      setOsTemplatesLoading(false);
     }
   };
 
@@ -406,9 +434,20 @@ export default function VMCreatePage() {
                 value={formData.os_type}
                 label="Hệ điều hành"
                 onChange={(e) => setFormData({ ...formData, os_type: e.target.value })}
+                disabled={osTemplatesLoading}
               >
-                <MenuItem value="ubuntu-24.04-cloudinit">Ubuntu 24.04 (Cloud-Init) — Nhanh</MenuItem>
-                <MenuItem value="ubuntu-server-24.04">Ubuntu Server 24.04 (ISO)</MenuItem>
+                {osTemplates.length > 0 ? (
+                  osTemplates.map((tpl) => (
+                    <MenuItem key={tpl.os_type_key} value={tpl.os_type_key}>
+                      {tpl.label}
+                    </MenuItem>
+                  ))
+                ) : (
+                  <>
+                    <MenuItem value="ubuntu-24.04-cloudinit">Ubuntu 24.04 (Cloud-Init) — Nhanh</MenuItem>
+                    <MenuItem value="ubuntu-server-24.04">Ubuntu Server 24.04 (ISO)</MenuItem>
+                  </>
+                )}
               </Select>
             </FormControl>
 
