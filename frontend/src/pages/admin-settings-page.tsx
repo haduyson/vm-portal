@@ -34,6 +34,7 @@ interface AllSettings {
   feature_2fa_required: string;
   refresh_token_expiry_days: string;
   temp_password_expiry_minutes: string;
+  auto_assign_ip_subdomain: string;
   telegram_bot_token: string | null;
   telegram_bot_token_masked: string;
   telegram_default_chat_id: string | null;
@@ -53,6 +54,7 @@ export default function AdminSettingsPage() {
   const [settings, setSettings] = useState<AllSettings | null>(null);
   const [featureNoVNC, setFeatureNoVNC] = useState(false);
   const [feature2FA, setFeature2FA] = useState(false);
+  const [autoAssignIpSubdomain, setAutoAssignIpSubdomain] = useState(false);
   const [refreshExpiry, setRefreshExpiry] = useState('7');
   const [tempPasswordExpiry, setTempPasswordExpiry] = useState('60');
   const [botToken, setBotToken] = useState('');
@@ -76,6 +78,7 @@ export default function AdminSettingsPage() {
       setSettings(data);
       setFeatureNoVNC(data.feature_novnc_console === 'true');
       setFeature2FA(data.feature_2fa_required === 'true');
+      setAutoAssignIpSubdomain(data.auto_assign_ip_subdomain === 'true');
       setRefreshExpiry(data.refresh_token_expiry_days || '7');
       setTempPasswordExpiry(data.temp_password_expiry_minutes || '60');
       setChatId(data.telegram_default_chat_id || '');
@@ -93,6 +96,7 @@ export default function AdminSettingsPage() {
       const payload: Record<string, string> = {
         feature_novnc_console: featureNoVNC ? 'true' : 'false',
         feature_2fa_required: feature2FA ? 'true' : 'false',
+        auto_assign_ip_subdomain: autoAssignIpSubdomain ? 'true' : 'false',
         refresh_token_expiry_days: refreshExpiry,
         temp_password_expiry_minutes: tempPasswordExpiry,
       };
@@ -191,6 +195,16 @@ export default function AdminSettingsPage() {
             />
             <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: -1 }}>
               Khi bật, người dùng sẽ được khuyến khích thiết lập 2FA
+            </Typography>
+
+            <FormControlLabel
+              control={
+                <Switch checked={autoAssignIpSubdomain} onChange={(e) => setAutoAssignIpSubdomain(e.target.checked)} />
+              }
+              label="Tự động gán IP & Subdomain cho VM mới"
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: -1 }}>
+              Khi bật, mỗi VM mới sẽ tự động được gán IP tĩnh ngẫu nhiên và subdomain từ tên VM
             </Typography>
           </Stack>
         </CardContent>

@@ -420,6 +420,16 @@ class ProxmoxService:
 
         return await asyncio.to_thread(_get_resources)
 
+    async def set_vm_password(self, vmid: int, username: str, password: str) -> Dict:
+        """Set VM user password via QEMU Guest Agent."""
+        def _set_password():
+            return self.proxmox.nodes(self.node).qemu(vmid).agent("set-user-password").post(
+                username=username,
+                password=password,
+            )
+
+        return await asyncio.to_thread(_set_password)
+
 
 async def create_proxmox_service(session: AsyncSession) -> ProxmoxService:
     """Factory: create ProxmoxService with DB config (fallback to env)."""

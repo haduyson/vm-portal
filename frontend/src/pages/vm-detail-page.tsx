@@ -82,6 +82,13 @@ export default function VMDetailPage() {
   const [tabIndex, setTabIndex] = useState(0);
   const vmRef = useRef<VMDetail | null>(null);
 
+  // Password reset state
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [resetPasswordLoading, setResetPasswordLoading] = useState(false);
+
   // Clone state
   const [cloneDialog, setCloneDialog] = useState(false);
   const [cloneName, setCloneName] = useState('');
@@ -234,6 +241,31 @@ export default function VMDetailPage() {
     }
   };
 
+  const handleResetPassword = async () => {
+    if (!vm) return;
+    if (newPassword.length < 6) {
+      setSnackbar({ open: true, message: 'Mật khẩu phải có ít nhất 6 ký tự', severity: 'error' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setSnackbar({ open: true, message: 'Mật khẩu xác nhận không khớp', severity: 'error' });
+      return;
+    }
+
+    setResetPasswordLoading(true);
+    try {
+      await apiClient.post(`/vms/${vm.id}/reset-password`, { new_password: newPassword });
+      setSnackbar({ open: true, message: 'Đã đổi mật khẩu root thành công', severity: 'success' });
+      setNewPassword('');
+      setConfirmPassword('');
+      await fetchVMDetail();
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.detail || 'Lỗi khi đổi mật khẩu', severity: 'error' });
+    } finally {
+      setResetPasswordLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box>
@@ -368,6 +400,62 @@ export default function VMDetailPage() {
                   <Typography variant="body1">{vm.storage}</Typography>
                 </Box>
               </Box>
+            </Paper>
+          </Grid>
+
+          <Grid item xs={12}>
+            <Paper sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>Đổi mật khẩu root</Typography>
+              <Divider sx={{ mb: 2 }} />
+              {vm.status !== 'running' ? (
+                <Alert severity="info">VM phải đang chạy để đổi mật khẩu.</Alert>
+              ) : (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <TextField
+                    label="Mật khẩu mới"
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    fullWidth
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton onClick={() => setShowNewPassword(!showNewPassword)} edge="end" size="small">
+                            {showNewPassword ? <VisibilityOff /> : <Visibility />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                  <TextField
+                    label="Xác nhận mật khẩu"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    fullWidth
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton onClick={() => setShowConfirmPassword(!showConfirmPassword)} edge="end" size="small">
+                            {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={handleResetPassword}
+                    disabled={resetPasswordLoading || !newPassword || !confirmPassword}
+                  >
+                    {resetPasswordLoading ? 'Đang đổi mật khẩu...' : 'Đổi mật khẩu root'}
+                  </Button>
+                  <Typography variant="caption" color="text.secondary">
+                    Lưu ý: QEMU Guest Agent phải được cài đặt và đang chạy trong VM
+                  </Typography>
+                </Box>
+              )}
             </Paper>
           </Grid>
         </Grid>

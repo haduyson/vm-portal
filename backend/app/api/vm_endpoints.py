@@ -10,7 +10,7 @@ from app.models.proxmox_server_model import ProxmoxServer
 from app.schemas.vm_schemas import (
     VMCreate, VMResponse, VMListResponse, VMResourceResponse,
     VMCloneRequest, VMMetricsDataPoint, VMMetricsResponse, VMConsoleResponse,
-    VMResize,
+    VMResize, VMResetPassword,
 )
 from app.services.system_settings_service import get_setting
 from app.services.vm_provisioning_service import VMProvisioningService
@@ -83,13 +83,21 @@ async def create_vm(
                     detail=f"Đã vượt giới hạn số CPU cores ({current_cpu_cores + vm_data.cores}/{current_user.max_cpu_cores})",
                 )
 
-        # Validate SSH subdomain if provided
+        # Validate SSH subdomain if provided or auto-assign if enabled
         ssh_subdomain = None
         cf_domain = None
         ssh_full_domain = None
 
-        if vm_data.ssh_subdomain:
-            ssh_subdomain = vm_data.ssh_subdomain.strip().lower()
+        # Check if auto-assign is enabled
+        auto_assign_enabled = await get_setting(session, "auto_assign_ip_subdomain")
+        should_auto_assign = (auto_assign_enabled or "false").lower() == "true" and not vm_data.ssh_subdomain
+
+        if vm_data.ssh_subdomain or should_auto_assign:
+            if should_auto_assign:
+                # Auto-generate subdomain from VM name
+                ssh_subdomain = vm_data.name.strip().lower()
+            else:
+                ssh_subdomain = vm_data.ssh_subdomain.strip().lower()
             valid, error_msg = CloudflareTunnelService.validate_subdomain(ssh_subdomain)
             if not valid:
                 raise HTTPException(
@@ -839,6 +847,54 @@ async def get_vm_console(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Lỗi khi tạo console: {str(e)}",
+        )
+
+
+@router.post("/{vm_id}/reset-password", response_model=VMResponse)
+async def reset_vm_password(
+    vm_id: int,
+    password_data: VMResetPassword,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Reset root password of a VM (owner or admin only)."""
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+
+    if not vm:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy VM",
+        )
+
+    if vm.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có quyền thay đổi mật khẩu VM này",
+        )
+
+    if vm.status != "running":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="VM phải đang chạy để đổi mật khẩu",
+        )
+
+    try:
+        proxmox = await create_proxmox_service_for_vm(vm, session)
+        await proxmox.set_vm_password(vm.vmid, "root", password_data.new_password)
+
+        # Update password in database
+        vm.ssh_password = password_data.new_password
+        await session.commit()
+        await session.refresh(vm)
+
+        return vm
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi đổi mật khẩu: {str(e)}. Đảm bảo QEMU Guest Agent đã được cài đặt và đang chạy trong VM.",
         )
 
 
