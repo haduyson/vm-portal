@@ -265,7 +265,6 @@ async def create_vm(
         if is_cloudinit and template_vmid:
             asyncio.create_task(
                 provisioning_service.provision_vm_cloudinit(
-                    session,
                     new_vm.id,
                     template_vmid=template_vmid,
                     user_telegram_chat_id=current_user.telegram_chat_id,
@@ -274,9 +273,8 @@ async def create_vm(
         else:
             asyncio.create_task(
                 provisioning_service.provision_vm(
-                    session,
                     new_vm.id,
-                    current_user.telegram_chat_id,
+                    user_telegram_chat_id=current_user.telegram_chat_id,
                 )
             )
 
