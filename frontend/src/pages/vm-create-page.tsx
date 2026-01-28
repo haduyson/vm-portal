@@ -21,6 +21,7 @@ import {
   RadioGroup,
   FormControlLabel,
   CircularProgress,
+  InputAdornment,
 } from '@mui/material';
 import apiClient from '../services/api-client';
 
@@ -38,11 +39,21 @@ interface Quota {
 interface ServerResource {
   id: number;
   name: string;
+  // CPU
+  cpu_model: string;
+  cpu_sockets: number;
+  cpu_cores_per_socket: number;
+  cpu_total_cores: number;
   cpu_percent: number;
-  memory_used_mb: number;
+  cpu_allocated_cores: number;
+  // RAM
   memory_total_mb: number;
-  disk_used_gb: number;
+  memory_used_mb: number;
+  memory_allocated_mb: number;
+  // Disk
   disk_total_gb: number;
+  disk_used_gb: number;
+  disk_allocated_gb: number;
 }
 
 interface StorageItem {
@@ -78,6 +89,9 @@ export default function VMCreatePage() {
   const [selectedStorage, setSelectedStorage] = useState<string>('');
   const [osTemplates, setOsTemplates] = useState<OsTemplateOption[]>([]);
   const [osTemplatesLoading, setOsTemplatesLoading] = useState(false);
+  const [sshSubdomain, setSshSubdomain] = useState('');
+  const [subdomainStatus, setSubdomainStatus] = useState<{ available?: boolean; reason?: string; domain?: string } | null>(null);
+  const [subdomainChecking, setSubdomainChecking] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -168,6 +182,22 @@ export default function VMCreatePage() {
     fetchStorages(serverId);
   };
 
+  const checkSubdomain = async (value: string) => {
+    const trimmed = value.trim().toLowerCase();
+    setSshSubdomain(trimmed);
+    setSubdomainStatus(null);
+    if (!trimmed || trimmed.length < 3) return;
+    setSubdomainChecking(true);
+    try {
+      const response = await apiClient.get(`/vms/check-subdomain/${trimmed}`);
+      setSubdomainStatus(response.data);
+    } catch {
+      setSubdomainStatus(null);
+    } finally {
+      setSubdomainChecking(false);
+    }
+  };
+
   const applyPreset = (preset: 'small' | 'medium' | 'large') => {
     const presets = {
       small: { cores: 1, ram_gb: 1, disk_gb: 20 },
@@ -195,6 +225,9 @@ export default function VMCreatePage() {
       if (selectedStorage) {
         payload.storage = selectedStorage;
       }
+      if (sshSubdomain.trim()) {
+        payload.ssh_subdomain = sshSubdomain.trim().toLowerCase();
+      }
       await apiClient.post('/vms/', payload);
       setSnackbar({ open: true, message: 'Đã khởi tạo máy ảo thành công!', severity: 'success' });
       setTimeout(() => navigate('/vms'), 1500);
@@ -206,11 +239,14 @@ export default function VMCreatePage() {
     }
   };
 
-  const memPercent = (s: ServerResource) =>
-    s.memory_total_mb > 0 ? Math.round((s.memory_used_mb / s.memory_total_mb) * 100) : 0;
+  const cpuAllocPercent = (s: ServerResource) =>
+    s.cpu_total_cores > 0 ? Math.round((s.cpu_allocated_cores / s.cpu_total_cores) * 100) : 0;
 
-  const diskPercent = (s: ServerResource) =>
-    s.disk_total_gb > 0 ? Math.round((s.disk_used_gb / s.disk_total_gb) * 100) : 0;
+  const memAllocPercent = (s: ServerResource) =>
+    s.memory_total_mb > 0 ? Math.round((s.memory_allocated_mb / s.memory_total_mb) * 100) : 0;
+
+  const diskAllocPercent = (s: ServerResource) =>
+    s.disk_total_gb > 0 ? Math.round((s.disk_allocated_gb / s.disk_total_gb) * 100) : 0;
 
   return (
     <Box>
@@ -279,37 +315,40 @@ export default function VMCreatePage() {
                         <Typography variant="subtitle1" fontWeight={600}>
                           {server.name}
                         </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {server.cpu_model} | {server.cpu_sockets} Socket × {server.cpu_cores_per_socket} Cores ({server.cpu_total_cores} Threads)
+                        </Typography>
                         <Stack spacing={0.5} sx={{ mt: 1 }}>
                           <Box>
                             <Typography variant="body2" color="text.secondary">
-                              CPU: {server.cpu_percent}%
+                              CPU: {server.cpu_allocated_cores} / {server.cpu_total_cores} cores đã cấp phát ({cpuAllocPercent(server)}%) — Sử dụng: {server.cpu_percent}%
                             </Typography>
                             <LinearProgress
                               variant="determinate"
-                              value={Math.min(server.cpu_percent, 100)}
-                              color={server.cpu_percent > 80 ? 'error' : server.cpu_percent > 60 ? 'warning' : 'primary'}
+                              value={Math.min(cpuAllocPercent(server), 100)}
+                              color={cpuAllocPercent(server) > 80 ? 'error' : cpuAllocPercent(server) > 60 ? 'warning' : 'primary'}
                               sx={{ height: 6, borderRadius: 3 }}
                             />
                           </Box>
                           <Box>
                             <Typography variant="body2" color="text.secondary">
-                              RAM: {Math.round(server.memory_used_mb / 1024)} / {Math.round(server.memory_total_mb / 1024)} GB ({memPercent(server)}%)
+                              RAM: {Math.round(server.memory_allocated_mb / 1024)} / {Math.round(server.memory_total_mb / 1024)} GB đã cấp phát ({memAllocPercent(server)}%)
                             </Typography>
                             <LinearProgress
                               variant="determinate"
-                              value={Math.min(memPercent(server), 100)}
-                              color={memPercent(server) > 80 ? 'error' : memPercent(server) > 60 ? 'warning' : 'primary'}
+                              value={Math.min(memAllocPercent(server), 100)}
+                              color={memAllocPercent(server) > 80 ? 'error' : memAllocPercent(server) > 60 ? 'warning' : 'primary'}
                               sx={{ height: 6, borderRadius: 3 }}
                             />
                           </Box>
                           <Box>
                             <Typography variant="body2" color="text.secondary">
-                              Disk: {server.disk_used_gb} / {server.disk_total_gb} GB ({diskPercent(server)}%)
+                              Disk: {server.disk_allocated_gb.toFixed(1)} / {server.disk_total_gb.toFixed(1)} GB đã cấp phát ({diskAllocPercent(server)}%)
                             </Typography>
                             <LinearProgress
                               variant="determinate"
-                              value={Math.min(diskPercent(server), 100)}
-                              color={diskPercent(server) > 80 ? 'error' : diskPercent(server) > 60 ? 'warning' : 'primary'}
+                              value={Math.min(diskAllocPercent(server), 100)}
+                              color={diskAllocPercent(server) > 80 ? 'error' : diskAllocPercent(server) > 60 ? 'warning' : 'primary'}
                               sx={{ height: 6, borderRadius: 3 }}
                             />
                           </Box>
@@ -451,13 +490,35 @@ export default function VMCreatePage() {
               </Select>
             </FormControl>
 
+            <TextField
+              margin="normal"
+              fullWidth
+              label="SSH Subdomain (tùy chọn)"
+              value={sshSubdomain}
+              onChange={(e) => checkSubdomain(e.target.value)}
+              InputProps={{
+                endAdornment: <InputAdornment position="end">.hasonmedia.com</InputAdornment>,
+              }}
+              helperText={
+                subdomainChecking
+                  ? 'Đang kiểm tra...'
+                  : subdomainStatus
+                    ? subdomainStatus.available
+                      ? `✓ ${subdomainStatus.domain} khả dụng`
+                      : `✗ ${subdomainStatus.reason}`
+                    : 'VD: myvm → myvm.hasonmedia.com (3-30 ký tự, chữ thường, số, gạch ngang)'
+              }
+              error={subdomainStatus !== null && !subdomainStatus.available}
+              color={subdomainStatus?.available ? 'success' : undefined}
+            />
+
             <Button
               type="submit"
               fullWidth
               variant="contained"
               size="large"
               sx={{ mt: 3 }}
-              disabled={loading || !formData.name.trim()}
+              disabled={loading || !formData.name.trim() || (sshSubdomain.trim() !== '' && subdomainStatus !== null && !subdomainStatus.available)}
             >
               {loading ? 'Đang khởi tạo...' : 'Khởi tạo máy'}
             </Button>

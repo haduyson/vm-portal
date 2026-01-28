@@ -22,6 +22,9 @@ import {
   DialogActions,
   Tabs,
   Tab,
+  Slider,
+  Chip,
+  Stack,
 } from '@mui/material';
 import {
   PlayArrow as PlayArrowIcon,
@@ -83,6 +86,18 @@ export default function VMDetailPage() {
   const [cloneDialog, setCloneDialog] = useState(false);
   const [cloneName, setCloneName] = useState('');
   const [cloneLoading, setCloneLoading] = useState(false);
+
+  // Resize state
+  const [resizeCores, setResizeCores] = useState(1);
+  const [resizeRamGb, setResizeRamGb] = useState(1);
+  const [resizeDiskGb, setResizeDiskGb] = useState(10);
+  const [resizeLoading, setResizeLoading] = useState(false);
+  const [quota, setQuota] = useState<{
+    max_vms: number | null; used_vms: number;
+    max_disk_gb: number | null; used_disk_gb: number;
+    max_ram_mb: number | null; used_ram_mb: number;
+    max_cpu_cores: number | null; used_cpu_cores: number;
+  } | null>(null);
 
   const fetchVMDetail = async () => {
     try {
@@ -169,6 +184,56 @@ export default function VMDetailPage() {
     }
   };
 
+  const fetchQuota = async () => {
+    try {
+      const response = await apiClient.get('/auth/quota');
+      setQuota(response.data);
+    } catch (error) {
+      console.error('Error fetching quota:', error);
+    }
+  };
+
+  // Initialize resize values when VM loads and fetch quota on resize tab
+  useEffect(() => {
+    if (vm) {
+      setResizeCores(vm.cores);
+      setResizeRamGb(Math.round(vm.memory_mb / 1024));
+      setResizeDiskGb(vm.disk_gb);
+    }
+  }, [vm?.id, vm?.cores, vm?.memory_mb, vm?.disk_gb]);
+
+  useEffect(() => {
+    if (tabIndex === 5) {
+      fetchQuota();
+    }
+  }, [tabIndex]);
+
+  const handleResize = async () => {
+    if (!vm) return;
+    setResizeLoading(true);
+    try {
+      const payload: Record<string, number> = {};
+      if (resizeCores !== vm.cores) payload.cores = resizeCores;
+      if (resizeRamGb * 1024 !== vm.memory_mb) payload.memory_mb = resizeRamGb * 1024;
+      if (resizeDiskGb !== vm.disk_gb) payload.disk_gb = resizeDiskGb;
+
+      if (Object.keys(payload).length === 0) {
+        setSnackbar({ open: true, message: 'Không có thay đổi nào', severity: 'error' });
+        setResizeLoading(false);
+        return;
+      }
+
+      await apiClient.put(`/vms/${vm.id}/resize`, payload);
+      setSnackbar({ open: true, message: 'Đã thay đổi cấu hình VM thành công', severity: 'success' });
+      await fetchVMDetail();
+      fetchQuota();
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.detail || 'Lỗi khi thay đổi cấu hình', severity: 'error' });
+    } finally {
+      setResizeLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box>
@@ -214,6 +279,7 @@ export default function VMDetailPage() {
           <Tab label="Mạng & Firewall" />
           <Tab label="Console" />
           <Tab label="Điều khiển" />
+          <Tab label="Nâng cấp" />
         </Tabs>
       </Paper>
 
@@ -425,6 +491,101 @@ export default function VMDetailPage() {
               Xóa VM
             </Button>
           </Box>
+        </Paper>
+      )}
+
+      {/* Tab 5: Resize */}
+      {tabIndex === 5 && (
+        <Paper sx={{ p: 3 }}>
+          <Typography variant="h6" gutterBottom>Thay đổi cấu hình</Typography>
+          <Divider sx={{ mb: 2 }} />
+
+          {vm.status !== 'stopped' ? (
+            <Alert severity="warning">VM phải ở trạng thái đã dừng để thay đổi cấu hình. Vui lòng tắt VM trước.</Alert>
+          ) : (
+            <>
+              {quota && (
+                <Stack direction="row" spacing={1} sx={{ mb: 3, flexWrap: 'wrap', gap: 1 }}>
+                  <Chip
+                    label={`CPU: ${quota.used_cpu_cores}${quota.max_cpu_cores !== null ? `/${quota.max_cpu_cores}` : ''} cores${quota.max_cpu_cores === null ? ' (Không giới hạn)' : ''}`}
+                    size="small"
+                    color={quota.max_cpu_cores !== null && quota.used_cpu_cores >= quota.max_cpu_cores ? 'error' : 'default'}
+                  />
+                  <Chip
+                    label={`RAM: ${Math.round(quota.used_ram_mb / 1024)}${quota.max_ram_mb !== null ? `/${Math.round(quota.max_ram_mb / 1024)}` : ''} GB${quota.max_ram_mb === null ? ' (Không giới hạn)' : ''}`}
+                    size="small"
+                    color={quota.max_ram_mb !== null && quota.used_ram_mb >= quota.max_ram_mb ? 'error' : 'default'}
+                  />
+                  <Chip
+                    label={`Disk: ${quota.used_disk_gb}${quota.max_disk_gb !== null ? `/${quota.max_disk_gb}` : ''} GB${quota.max_disk_gb === null ? ' (Không giới hạn)' : ''}`}
+                    size="small"
+                    color={quota.max_disk_gb !== null && quota.used_disk_gb >= quota.max_disk_gb ? 'error' : 'default'}
+                  />
+                </Stack>
+              )}
+
+              <Box sx={{ mb: 3 }}>
+                <Typography gutterBottom>
+                  CPU (Cores): {resizeCores} {resizeCores !== vm.cores && <Chip label={`hiện tại: ${vm.cores}`} size="small" sx={{ ml: 1 }} />}
+                </Typography>
+                <Slider
+                  value={resizeCores}
+                  onChange={(_, value) => setResizeCores(value as number)}
+                  min={1}
+                  max={16}
+                  step={1}
+                  marks
+                  valueLabelDisplay="auto"
+                />
+              </Box>
+
+              <Box sx={{ mb: 3 }}>
+                <Typography gutterBottom>
+                  RAM (GB): {resizeRamGb} {resizeRamGb !== Math.round(vm.memory_mb / 1024) && <Chip label={`hiện tại: ${Math.round(vm.memory_mb / 1024)} GB`} size="small" sx={{ ml: 1 }} />}
+                </Typography>
+                <Slider
+                  value={resizeRamGb}
+                  onChange={(_, value) => setResizeRamGb(value as number)}
+                  min={1}
+                  max={64}
+                  step={1}
+                  marks={[
+                    { value: 1, label: '1GB' },
+                    { value: 16, label: '16GB' },
+                    { value: 32, label: '32GB' },
+                    { value: 64, label: '64GB' },
+                  ]}
+                  valueLabelDisplay="auto"
+                />
+              </Box>
+
+              <Box sx={{ mb: 3 }}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label={`Ổ cứng (GB) — Hiện tại: ${vm.disk_gb} GB (chỉ tăng)`}
+                  value={resizeDiskGb}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || vm.disk_gb;
+                    setResizeDiskGb(Math.max(val, vm.disk_gb));
+                  }}
+                  inputProps={{ min: vm.disk_gb, max: 1000 }}
+                  helperText="Không thể giảm dung lượng ổ cứng (giới hạn Proxmox)"
+                />
+              </Box>
+
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={handleResize}
+                disabled={resizeLoading || (resizeCores === vm.cores && resizeRamGb === Math.round(vm.memory_mb / 1024) && resizeDiskGb === vm.disk_gb)}
+                fullWidth
+                size="large"
+              >
+                {resizeLoading ? 'Đang thay đổi...' : 'Áp dụng thay đổi'}
+              </Button>
+            </>
+          )}
         </Paper>
       )}
 

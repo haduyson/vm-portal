@@ -219,7 +219,22 @@ class VMProvisioningService:
                         if vm:
                             vm.status = "running"
                             vm.ip_address = ip_address
-                            vm.ssh_domain = f"{vm.name}.{settings.CF_TUNNEL_DOMAIN}"
+
+                            # Setup Cloudflare tunnel SSH if subdomain was pre-set
+                            if vm.ssh_domain and settings.CF_API_TOKEN:
+                                try:
+                                    import importlib
+                                    _cf_mod = importlib.import_module("app.services.cloudflare-tunnel-service")
+                                    cf_service = _cf_mod.CloudflareTunnelService()
+                                    subdomain = vm.ssh_domain.replace(f".{settings.CF_BASE_DOMAIN}", "")
+                                    await cf_service.add_ssh_ingress(subdomain, ip_address)
+                                    print(f"Cloudflare tunnel configured: {vm.ssh_domain} → {ip_address}")
+                                except Exception as cf_err:
+                                    print(f"Warning: Failed to setup CF tunnel for {vm.ssh_domain}: {cf_err}")
+                            elif not vm.ssh_domain:
+                                # Fallback: use legacy domain format
+                                vm.ssh_domain = f"{vm.name}.{settings.CF_TUNNEL_DOMAIN}"
+
                             await session.commit()
 
                             # Send Telegram notification

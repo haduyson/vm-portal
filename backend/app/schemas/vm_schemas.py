@@ -22,6 +22,7 @@ class VMCreate(BaseModel):
     os_type: str = "ubuntu-24.04"
     server_id: Optional[int] = None
     storage: Optional[str] = None
+    ssh_subdomain: Optional[str] = None
 
 
 class VMResponse(BaseModel):
@@ -59,6 +60,12 @@ class VMResourceResponse(BaseModel):
     memory_total_mb: float
     disk_used_gb: float
     disk_total_gb: float
+
+
+class VMResize(BaseModel):
+    cores: Optional[int] = Field(None, ge=1, le=16)
+    memory_mb: Optional[int] = Field(None, ge=512, le=65536)
+    disk_gb: Optional[int] = Field(None, ge=10, le=1000)
 
 
 class VMCloneRequest(BaseModel):

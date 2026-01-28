@@ -29,6 +29,12 @@ class Settings(BaseSettings):
 
     # Cloudflare Tunnel
     CF_TUNNEL_DOMAIN: str = "example.com"
+    CF_API_TOKEN: str = ""
+    CF_ZONE_ID: str = ""
+    CF_TUNNEL_ID: str = ""
+    CF_TUNNEL_NAME: str = "vpscloud"
+    CF_BASE_DOMAIN: str = "hasonmedia.com"
+    CF_CLOUDFLARED_CONFIG_PATH: str = "/etc/cloudflared/config.yml"
 
     class Config:
         env_file = ".env"

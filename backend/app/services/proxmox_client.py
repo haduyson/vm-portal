@@ -71,36 +71,87 @@ class ProxmoxService:
         return await asyncio.to_thread(_get)
 
     async def get_node_resources(self) -> Dict:
-        """Get node-level CPU/RAM/Disk usage from Proxmox."""
+        """Get node-level CPU/RAM/Disk usage with CPU info and VM allocations."""
         def _get_resources():
             try:
                 node_status = self.proxmox.nodes(self.node).status.get()
 
+                # CPU info
+                cpuinfo = node_status.get("cpuinfo", {})
+                cpu_model = cpuinfo.get("model", "Unknown")
+                cpu_sockets = cpuinfo.get("sockets", 1)
+                cpu_cores_per_socket = cpuinfo.get("cores", 1)
+                cpu_total_cores = cpuinfo.get("cpus", cpu_sockets * cpu_cores_per_socket)
                 cpu_percent = round(node_status.get("cpu", 0) * 100, 2)
 
+                # RAM
                 mem_used = node_status.get("memory", {}).get("used", 0)
                 mem_total = node_status.get("memory", {}).get("total", 1)
                 memory_used_mb = round(mem_used / (1024 * 1024), 2)
                 memory_total_mb = round(mem_total / (1024 * 1024), 2)
 
-                rootfs = node_status.get("rootfs", {})
-                disk_used_gb = round(rootfs.get("used", 0) / (1024 ** 3), 2)
-                disk_total_gb = round(rootfs.get("total", 1) / (1024 ** 3), 2)
+                # VM allocations (cores + RAM)
+                allocated_cores = 0
+                allocated_ram_mb = 0
+                try:
+                    vms = self.proxmox.nodes(self.node).qemu.get()
+                    for vm in vms:
+                        allocated_cores += vm.get("maxcpu", 0)
+                        allocated_ram_mb += round(vm.get("maxmem", 0) / (1024 * 1024), 2)
+                except Exception:
+                    pass
+
+                # Disk: sum ALL storages (not just rootfs)
+                disk_total_gb = 0.0
+                disk_used_gb = 0.0
+                disk_allocated_gb = 0.0
+                try:
+                    storages = self.proxmox.nodes(self.node).storage.get()
+                    for s in storages:
+                        if s.get("active", 0) == 1:
+                            disk_total_gb += s.get("total", 0) / (1024 ** 3)
+                            disk_used_gb += s.get("used", 0) / (1024 ** 3)
+                    disk_total_gb = round(disk_total_gb, 2)
+                    disk_used_gb = round(disk_used_gb, 2)
+                except Exception:
+                    pass
+
+                # Disk allocated: sum provisioned disk from all VMs
+                try:
+                    for vm in vms:
+                        disk_allocated_gb += vm.get("maxdisk", 0) / (1024 ** 3)
+                    disk_allocated_gb = round(disk_allocated_gb, 2)
+                except Exception:
+                    pass
 
                 return {
+                    "cpu_model": cpu_model,
+                    "cpu_sockets": cpu_sockets,
+                    "cpu_cores_per_socket": cpu_cores_per_socket,
+                    "cpu_total_cores": cpu_total_cores,
                     "cpu_percent": cpu_percent,
+                    "cpu_allocated_cores": allocated_cores,
                     "memory_used_mb": memory_used_mb,
                     "memory_total_mb": memory_total_mb,
+                    "memory_allocated_mb": round(allocated_ram_mb, 2),
                     "disk_used_gb": disk_used_gb,
                     "disk_total_gb": disk_total_gb,
+                    "disk_allocated_gb": disk_allocated_gb,
                 }
-            except Exception as e:
+            except Exception:
                 return {
+                    "cpu_model": "Unknown",
+                    "cpu_sockets": 0,
+                    "cpu_cores_per_socket": 0,
+                    "cpu_total_cores": 0,
                     "cpu_percent": 0,
+                    "cpu_allocated_cores": 0,
                     "memory_used_mb": 0,
                     "memory_total_mb": 0,
+                    "memory_allocated_mb": 0,
                     "disk_used_gb": 0,
                     "disk_total_gb": 0,
+                    "disk_allocated_gb": 0,
                 }
 
         return await asyncio.to_thread(_get_resources)

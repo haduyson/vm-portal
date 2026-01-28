@@ -63,11 +63,21 @@ class ProxmoxServerListItem(BaseModel):
 class ProxmoxServerResourceResponse(BaseModel):
     id: int
     name: str
-    cpu_percent: float
-    memory_used_mb: float
-    memory_total_mb: float
-    disk_used_gb: float
-    disk_total_gb: float
+    # CPU
+    cpu_model: str = "Unknown"
+    cpu_sockets: int = 0
+    cpu_cores_per_socket: int = 0
+    cpu_total_cores: int = 0
+    cpu_percent: float = 0
+    cpu_allocated_cores: int = 0
+    # RAM
+    memory_total_mb: float = 0
+    memory_used_mb: float = 0
+    memory_allocated_mb: float = 0
+    # Disk (all storages combined)
+    disk_total_gb: float = 0
+    disk_used_gb: float = 0
+    disk_allocated_gb: float = 0
 
 
 class ProxmoxStorageItem(BaseModel):

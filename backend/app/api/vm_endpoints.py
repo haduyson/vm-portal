@@ -10,6 +10,7 @@ from app.models.proxmox_server_model import ProxmoxServer
 from app.schemas.vm_schemas import (
     VMCreate, VMResponse, VMListResponse, VMResourceResponse,
     VMCloneRequest, VMMetricsDataPoint, VMMetricsResponse, VMConsoleResponse,
+    VMResize,
 )
 from app.services.system_settings_service import get_setting
 from app.services.vm_provisioning_service import VMProvisioningService
@@ -21,9 +22,12 @@ from app.config import settings
 from app.models.os_template_model import OsTemplate
 import asyncio
 import importlib
+import re
 
 _ps_schemas = importlib.import_module("app.schemas.proxmox-server-schemas")
 _os_schemas = importlib.import_module("app.schemas.os-template-schemas")
+_cf_tunnel_mod = importlib.import_module("app.services.cloudflare-tunnel-service")
+CloudflareTunnelService = _cf_tunnel_mod.CloudflareTunnelService
 
 router = APIRouter(prefix="/vms", tags=["virtual-machines"])
 proxmox_servers_public_router = APIRouter(tags=["proxmox-servers-public"])
@@ -76,6 +80,42 @@ async def create_vm(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Đã vượt giới hạn số CPU cores ({current_cpu_cores + vm_data.cores}/{current_user.max_cpu_cores})",
                 )
+
+        # Validate SSH subdomain if provided
+        ssh_subdomain = None
+        if vm_data.ssh_subdomain:
+            ssh_subdomain = vm_data.ssh_subdomain.strip().lower()
+            valid, error_msg = CloudflareTunnelService.validate_subdomain(ssh_subdomain)
+            if not valid:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=error_msg,
+                )
+            # Check DB uniqueness
+            existing = await session.execute(
+                select(VirtualMachine).where(
+                    VirtualMachine.ssh_domain == f"{ssh_subdomain}.{settings.CF_BASE_DOMAIN}"
+                )
+            )
+            if existing.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Subdomain '{ssh_subdomain}.{settings.CF_BASE_DOMAIN}' đã được sử dụng",
+                )
+            # Check Cloudflare DNS availability
+            if settings.CF_API_TOKEN:
+                try:
+                    cf_service = CloudflareTunnelService()
+                    available = await cf_service.is_subdomain_available(ssh_subdomain)
+                    if not available:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Subdomain '{ssh_subdomain}.{settings.CF_BASE_DOMAIN}' đã tồn tại trên Cloudflare",
+                        )
+                except HTTPException:
+                    raise
+                except Exception as e:
+                    print(f"Warning: Could not check CF subdomain availability: {e}")
 
         # Resolve Proxmox server
         server = None
@@ -166,6 +206,7 @@ async def create_vm(
             status="creating",
             proxmox_node=node_name,
             storage=storage_name,
+            ssh_domain=f"{ssh_subdomain}.{settings.CF_BASE_DOMAIN}" if ssh_subdomain else None,
         )
 
         session.add(new_vm)
@@ -452,12 +493,128 @@ async def delete_vm(
         if vm.status == "running":
             await proxmox.stop_vm(vm.vmid)
         await proxmox.delete_vm(vm.vmid)
+
+        # Cleanup Cloudflare tunnel if SSH subdomain was configured
+        if vm.ssh_domain and settings.CF_API_TOKEN and settings.CF_BASE_DOMAIN in (vm.ssh_domain or ""):
+            try:
+                cf_service = CloudflareTunnelService()
+                subdomain = vm.ssh_domain.replace(f".{settings.CF_BASE_DOMAIN}", "")
+                await cf_service.remove_ssh_ingress(subdomain)
+            except Exception as cf_err:
+                print(f"Warning: Failed to cleanup CF tunnel for {vm.ssh_domain}: {cf_err}")
+
         await session.delete(vm)
         await session.commit()
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Lỗi khi xóa VM: {str(e)}",
+        )
+
+
+@router.put("/{vm_id}/resize", response_model=VMResponse)
+async def resize_vm(
+    vm_id: int,
+    resize_data: VMResize,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Resize VM resources (cores, RAM, disk). VM must be stopped."""
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+
+    if not vm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy VM")
+
+    if vm.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Bạn không có quyền thay đổi VM này")
+
+    if vm.status != "stopped":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="VM phải ở trạng thái đã dừng để thay đổi cấu hình",
+        )
+
+    if not resize_data.cores and not resize_data.memory_mb and not resize_data.disk_gb:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Phải chỉ định ít nhất một thông số để thay đổi",
+        )
+
+    # Validate disk can only increase
+    if resize_data.disk_gb is not None and resize_data.disk_gb < vm.disk_gb:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Không thể giảm dung lượng ổ cứng (hiện tại: {vm.disk_gb} GB)",
+        )
+
+    # Validate against user quotas
+    user_vms_result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.user_id == current_user.id)
+    )
+    user_vms = user_vms_result.scalars().all()
+
+    current_disk_gb = sum(v.disk_gb for v in user_vms)
+    current_ram_mb = sum(v.memory_mb for v in user_vms)
+    current_cpu_cores = sum(v.cores for v in user_vms)
+
+    new_cores = resize_data.cores or vm.cores
+    new_memory_mb = resize_data.memory_mb or vm.memory_mb
+    new_disk_gb = resize_data.disk_gb or vm.disk_gb
+
+    # Delta = new - old for this VM
+    delta_cores = new_cores - vm.cores
+    delta_ram = new_memory_mb - vm.memory_mb
+    delta_disk = new_disk_gb - vm.disk_gb
+
+    if current_user.max_cpu_cores is not None and current_cpu_cores + delta_cores > current_user.max_cpu_cores:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Vượt giới hạn CPU cores ({current_cpu_cores + delta_cores}/{current_user.max_cpu_cores})",
+        )
+    if current_user.max_ram_mb is not None and current_ram_mb + delta_ram > current_user.max_ram_mb:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Vượt giới hạn RAM ({(current_ram_mb + delta_ram) // 1024}/{current_user.max_ram_mb // 1024} GB)",
+        )
+    if current_user.max_disk_gb is not None and current_disk_gb + delta_disk > current_user.max_disk_gb:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Vượt giới hạn dung lượng ổ cứng ({current_disk_gb + delta_disk}/{current_user.max_disk_gb} GB)",
+        )
+
+    try:
+        proxmox = await create_proxmox_service_for_vm(vm, session)
+
+        # Apply CPU/RAM changes
+        if resize_data.cores or resize_data.memory_mb:
+            config_kwargs = {}
+            if resize_data.cores:
+                config_kwargs["cores"] = new_cores
+            if resize_data.memory_mb:
+                config_kwargs["memory"] = new_memory_mb
+            await proxmox.set_vm_config(vm.vmid, **config_kwargs)
+
+        # Resize disk if requested
+        if resize_data.disk_gb and resize_data.disk_gb > vm.disk_gb:
+            await proxmox.resize_disk(vm.vmid, "scsi0", new_disk_gb)
+
+        # Update DB record
+        vm.cores = new_cores
+        vm.memory_mb = new_memory_mb
+        vm.disk_gb = new_disk_gb
+        await session.commit()
+        await session.refresh(vm)
+        return vm
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi thay đổi cấu hình VM: {str(e)}",
         )
 
 
@@ -639,11 +796,18 @@ async def list_available_proxmox_servers(
             resources = await proxmox.get_node_resources()
         except Exception:
             resources = {
+                "cpu_model": "Unknown",
+                "cpu_sockets": 0,
+                "cpu_cores_per_socket": 0,
+                "cpu_total_cores": 0,
                 "cpu_percent": 0,
+                "cpu_allocated_cores": 0,
                 "memory_used_mb": 0,
                 "memory_total_mb": 0,
+                "memory_allocated_mb": 0,
                 "disk_used_gb": 0,
                 "disk_total_gb": 0,
+                "disk_allocated_gb": 0,
             }
 
         responses.append(_ps_schemas.ProxmoxServerResourceResponse(
@@ -732,3 +896,38 @@ async def list_available_os_templates(
         .order_by(OsTemplate.sort_order, OsTemplate.id)
     )
     return result.scalars().all()
+
+
+# --- SSH Subdomain availability check ---
+
+@router.get("/check-subdomain/{subdomain}")
+async def check_subdomain_availability(
+    subdomain: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Check if an SSH subdomain is available."""
+    subdomain = subdomain.strip().lower()
+    valid, error_msg = CloudflareTunnelService.validate_subdomain(subdomain)
+    if not valid:
+        return {"available": False, "reason": error_msg}
+
+    # Check DB
+    full_domain = f"{subdomain}.{settings.CF_BASE_DOMAIN}"
+    existing = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.ssh_domain == full_domain)
+    )
+    if existing.scalar_one_or_none():
+        return {"available": False, "reason": "Subdomain đã được sử dụng"}
+
+    # Check Cloudflare DNS
+    if settings.CF_API_TOKEN:
+        try:
+            cf_service = CloudflareTunnelService()
+            cf_available = await cf_service.is_subdomain_available(subdomain)
+            if not cf_available:
+                return {"available": False, "reason": "Subdomain đã tồn tại trên DNS"}
+        except Exception:
+            pass  # If CF check fails, still allow (will validate on create)
+
+    return {"available": True, "domain": full_domain}
