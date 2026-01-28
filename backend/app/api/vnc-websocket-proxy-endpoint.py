@@ -1,11 +1,11 @@
 import asyncio
 import ssl
-from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_session
 from app.models.virtual_machine_model import VirtualMachine
-from app.services.proxmox_client import create_proxmox_service_for_vm
+from app.models.proxmox_server_model import ProxmoxServer
+from app.config import settings
 from sqlalchemy import select
 import websockets
 
@@ -22,12 +22,11 @@ async def vnc_websocket_proxy(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    WebSocket proxy endpoint that forwards connections to Proxmox VNC WebSocket.
-    This endpoint bridges the client (noVNC in browser) to Proxmox VE VNC WebSocket.
+    WebSocket proxy: browser noVNC ↔ Proxmox VNC WebSocket.
     """
     await websocket.accept()
 
-    # Get VM to find the Proxmox server details
+    # Get VM to find Proxmox server details
     result = await session.execute(
         select(VirtualMachine).where(VirtualMachine.vmid == vmid)
     )
@@ -37,17 +36,17 @@ async def vnc_websocket_proxy(
         await websocket.close(code=1008, reason="VM not found")
         return
 
-    # Get ProxmoxService to retrieve server host/port
-    try:
-        proxmox = await create_proxmox_service_for_vm(vm, session)
-    except Exception as e:
-        await websocket.close(code=1011, reason=f"Failed to connect to Proxmox: {str(e)}")
-        return
-
-    # Build Proxmox WebSocket URL
-    # Format: wss://{host}:{port}/api2/json/nodes/{node}/qemu/{vmid}/vncwebsocket?port={port}&vncticket={ticket}
-    proxmox_host = proxmox.proxmox._session.proxmox_host
-    proxmox_port = proxmox.proxmox._session.proxmox_port or 8006
+    # Get Proxmox host/port from ProxmoxServer model or env fallback
+    if vm.proxmox_server_id:
+        srv_result = await session.execute(
+            select(ProxmoxServer).where(ProxmoxServer.id == vm.proxmox_server_id)
+        )
+        server = srv_result.scalar_one_or_none()
+        proxmox_host = server.host if server else settings.PROXMOX_HOST
+        proxmox_port = server.port if server else 8006
+    else:
+        proxmox_host = settings.PROXMOX_HOST
+        proxmox_port = getattr(settings, 'PROXMOX_PORT', 8006)
 
     proxmox_ws_url = (
         f"wss://{proxmox_host}:{proxmox_port}/api2/json/nodes/{node}/qemu/{vmid}/vncwebsocket"
