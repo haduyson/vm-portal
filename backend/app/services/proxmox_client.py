@@ -27,7 +27,7 @@ class ProxmoxService:
             verify_ssl=settings.PROXMOX_VERIFY_SSL,
         )
         self.node = node or settings.PROXMOX_NODE
-        self.iso_storage = iso_storage or settings.PROXMOX_ISO_STORAGE
+        self.iso_storage = iso_storage or "local"
 
     @classmethod
     def from_server(cls, server) -> "ProxmoxService":
@@ -39,8 +39,25 @@ class ProxmoxService:
             token_name=server.token_name,
             token_value=server.token_value,
             node=server.node,
-            iso_storage=server.iso_storage,
         )
+
+    async def get_nodes(self) -> list:
+        """Get list of node names from Proxmox cluster."""
+        def _get():
+            return self.proxmox.nodes.get()
+        return await asyncio.to_thread(_get)
+
+    async def get_storages(self, content_filter: str = None) -> list:
+        """Get available storages from Proxmox node.
+        Returns list of dicts: {storage, type, content, total, used, avail, active}
+        content_filter: e.g. 'images' for VM disk, 'iso' for ISO files
+        """
+        def _get():
+            storages = self.proxmox.nodes(self.node).storage.get()
+            if content_filter:
+                return [s for s in storages if content_filter in s.get('content', '')]
+            return storages
+        return await asyncio.to_thread(_get)
 
     async def get_node_resources(self) -> Dict:
         """Get node-level CPU/RAM/Disk usage from Proxmox."""
@@ -93,9 +110,10 @@ class ProxmoxService:
         disk_gb: int,
         storage: str,
         iso: str,
+        iso_storage: str = None,
     ) -> Dict:
         """Create a new VM in Proxmox."""
-        iso_storage = self.iso_storage
+        iso_storage = iso_storage or self.iso_storage
 
         def _create_vm():
             return self.proxmox.nodes(self.node).qemu.post(
@@ -146,9 +164,9 @@ class ProxmoxService:
 
         return await asyncio.to_thread(_get_status)
 
-    async def configure_cloud_init(self, vmid: int, userdata_file: str) -> Dict:
+    async def configure_cloud_init(self, vmid: int, userdata_file: str, iso_storage: str = None) -> Dict:
         """Configure cloud-init for a VM."""
-        iso_storage = self.iso_storage
+        iso_storage = iso_storage or self.iso_storage
 
         def _configure():
             return self.proxmox.nodes(self.node).qemu(vmid).config.put(

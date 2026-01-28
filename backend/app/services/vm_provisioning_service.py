@@ -12,9 +12,10 @@ from app.services.telegram_notifier import TelegramNotifier
 class VMProvisioningService:
     """Orchestrate VM provisioning with Proxmox, cloud-init, and notifications."""
 
-    def __init__(self, proxmox: Optional[ProxmoxService] = None):
+    def __init__(self, proxmox: Optional[ProxmoxService] = None, iso_storage: Optional[str] = None):
         self.proxmox = proxmox or ProxmoxService()
         self.cloud_init = CloudInitGenerator()
+        self.iso_storage = iso_storage
 
     @classmethod
     async def create(cls, session: AsyncSession) -> "VMProvisioningService":
@@ -63,10 +64,11 @@ class VMProvisioningService:
                 disk_gb=vm.disk_gb,
                 storage=vm.storage,
                 iso=settings.PROXMOX_ISO_IMAGE,
+                iso_storage=self.iso_storage,
             )
 
             # Configure cloud-init
-            # await self.proxmox.configure_cloud_init(vm.vmid, cloud_init_file)
+            # await self.proxmox.configure_cloud_init(vm.vmid, cloud_init_file, iso_storage=self.iso_storage)
 
             # Start VM
             await self.proxmox.start_vm(vm.vmid)

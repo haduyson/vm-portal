@@ -1,6 +1,7 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,8 +34,6 @@ def _server_to_response(server: ProxmoxServer) -> schemas.ProxmoxServerResponse:
         token_name=server.token_name,
         token_value_masked=_mask_token(server.token_value),
         node=server.node,
-        vm_storage=server.vm_storage,
-        iso_storage=server.iso_storage,
         is_active=server.is_active,
         created_at=server.created_at,
         updated_at=server.updated_at,
@@ -71,7 +70,39 @@ async def create_proxmox_server(
             detail=f"Server với tên '{data.name}' đã tồn tại",
         )
 
-    server = ProxmoxServer(**data.model_dump())
+    # Auto-detect node from Proxmox API
+    try:
+        temp_service = ProxmoxService(
+            host=data.host,
+            port=data.port,
+            user=data.user,
+            token_name=data.token_name,
+            token_value=data.token_value,
+        )
+        nodes = await temp_service.get_nodes()
+        if not nodes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Không thể kết nối Proxmox hoặc không tìm thấy node",
+            )
+        node_name = nodes[0]['node']
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Lỗi kết nối Proxmox: {str(e)}",
+        )
+
+    server = ProxmoxServer(
+        name=data.name,
+        host=data.host,
+        port=data.port,
+        user=data.user,
+        token_name=data.token_name,
+        token_value=data.token_value,
+        node=node_name,
+    )
     session.add(server)
     await session.commit()
     await session.refresh(server)
@@ -214,4 +245,95 @@ async def get_proxmox_server_resources(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Lỗi khi lấy tài nguyên server: {str(e)}",
+        )
+
+
+@router.get("/{server_id}/storages", response_model=List[schemas.ProxmoxStorageItem])
+async def get_proxmox_server_storages(
+    server_id: int,
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get all storages from a Proxmox server."""
+    result = await session.execute(
+        select(ProxmoxServer).where(ProxmoxServer.id == server_id)
+    )
+    server = result.scalar_one_or_none()
+    if not server:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy server",
+        )
+
+    try:
+        proxmox = ProxmoxService.from_server(server)
+        storages = await proxmox.get_storages()
+
+        result_list = []
+        for s in storages:
+            total = s.get('total', 0)
+            used = s.get('used', 0)
+            avail = s.get('avail', 0)
+
+            result_list.append(schemas.ProxmoxStorageItem(
+                storage=s.get('storage', ''),
+                type=s.get('type', ''),
+                content=s.get('content', ''),
+                total_gb=round(total / (1024 ** 3), 2) if total else 0,
+                used_gb=round(used / (1024 ** 3), 2) if used else 0,
+                available_gb=round(avail / (1024 ** 3), 2) if avail else 0,
+                active=s.get('active', 0) == 1,
+            ))
+
+        return result_list
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi lấy danh sách storage: {str(e)}",
+        )
+
+
+class ProxmoxTestConnectionRequest(BaseModel):
+    host: str
+    port: int = 8006
+    user: str = "root@pam"
+    token_name: str
+    token_value: str
+
+
+class ProxmoxTestConnectionResponse(BaseModel):
+    success: bool
+    node: str = None
+    error: str = None
+
+
+@router.post("/test-connection", response_model=ProxmoxTestConnectionResponse)
+async def test_proxmox_connection(
+    data: ProxmoxTestConnectionRequest,
+    _admin: User = Depends(get_current_admin_user),
+):
+    """Test connection to a Proxmox server and return node info."""
+    try:
+        temp_service = ProxmoxService(
+            host=data.host,
+            port=data.port,
+            user=data.user,
+            token_name=data.token_name,
+            token_value=data.token_value,
+        )
+        nodes = await temp_service.get_nodes()
+        if not nodes:
+            return ProxmoxTestConnectionResponse(
+                success=False,
+                error="Không tìm thấy node nào",
+            )
+
+        return ProxmoxTestConnectionResponse(
+            success=True,
+            node=nodes[0]['node'],
+        )
+    except Exception as e:
+        return ProxmoxTestConnectionResponse(
+            success=False,
+            error=str(e),
         )

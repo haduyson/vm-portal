@@ -43,8 +43,6 @@ interface ProxmoxServer {
   user: string;
   token_name: string;
   node: string;
-  vm_storage: string;
-  iso_storage: string;
   is_active: boolean;
 }
 
@@ -55,9 +53,6 @@ interface ProxmoxServerCreate {
   user: string;
   token_name: string;
   token_value: string;
-  node: string;
-  vm_storage: string;
-  iso_storage: string;
 }
 
 interface ProxmoxServerUpdate {
@@ -67,10 +62,18 @@ interface ProxmoxServerUpdate {
   user: string;
   token_name: string;
   token_value?: string;
-  node: string;
-  vm_storage: string;
-  iso_storage: string;
+  node?: string;
   is_active: boolean;
+}
+
+interface ProxmoxStorageItem {
+  storage: string;
+  type: string;
+  content: string;
+  total_gb: number;
+  used_gb: number;
+  available_gb: number;
+  active: boolean;
 }
 
 interface ResourceData {
@@ -88,11 +91,15 @@ export default function AdminProxmoxServersPage() {
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [resourceDialogOpen, setResourceDialogOpen] = useState(false);
+  const [storageDialogOpen, setStorageDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [currentServerId, setCurrentServerId] = useState<number | null>(null);
   const [resourceData, setResourceData] = useState<ResourceData | null>(null);
+  const [storageData, setStorageData] = useState<ProxmoxStorageItem[]>([]);
   const [loadingResources, setLoadingResources] = useState(false);
+  const [loadingStorages, setLoadingStorages] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
   const [showTokenValue, setShowTokenValue] = useState(false);
 
   // Form fields
@@ -103,9 +110,8 @@ export default function AdminProxmoxServersPage() {
   const [tokenName, setTokenName] = useState('');
   const [tokenValue, setTokenValue] = useState('');
   const [node, setNode] = useState('');
-  const [vmStorage, setVmStorage] = useState('');
-  const [isoStorage, setIsoStorage] = useState('local');
   const [isActive, setIsActive] = useState(true);
+  const [detectedNode, setDetectedNode] = useState('');
 
   // Alerts
   const [successMessage, setSuccessMessage] = useState('');
@@ -135,10 +141,9 @@ export default function AdminProxmoxServersPage() {
     setTokenName('');
     setTokenValue('');
     setNode('');
-    setVmStorage('');
-    setIsoStorage('local');
     setIsActive(true);
     setShowTokenValue(false);
+    setDetectedNode('');
   };
 
   const handleOpenAddDialog = () => {
@@ -156,8 +161,6 @@ export default function AdminProxmoxServersPage() {
     setTokenName(server.token_name);
     setTokenValue('');
     setNode(server.node);
-    setVmStorage(server.vm_storage);
-    setIsoStorage(server.iso_storage);
     setIsActive(server.is_active);
     setEditMode(true);
     setCurrentServerId(server.id);
@@ -169,8 +172,38 @@ export default function AdminProxmoxServersPage() {
     resetForm();
   };
 
+  const handleTestConnection = async () => {
+    if (!host || !tokenName || !tokenValue) {
+      setErrorMessage('Vui lòng điền đầy đủ host, token name và token value');
+      return;
+    }
+
+    try {
+      setTestingConnection(true);
+      setErrorMessage('');
+      const response = await apiClient.post('/admin/proxmox-servers/test-connection', {
+        host,
+        port,
+        user,
+        token_name: tokenName,
+        token_value: tokenValue,
+      });
+
+      if (response.data.success) {
+        setDetectedNode(response.data.node);
+        setSuccessMessage(`Kết nối thành công! Node được phát hiện: ${response.data.node}`);
+      } else {
+        setErrorMessage(`Kết nối thất bại: ${response.data.error}`);
+      }
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể kết nối Proxmox');
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
   const handleSave = async () => {
-    if (!name || !host || !tokenName || !node || !vmStorage) {
+    if (!name || !host || !tokenName) {
       setErrorMessage('Vui lòng điền đầy đủ các trường bắt buộc');
       return;
     }
@@ -192,13 +225,13 @@ export default function AdminProxmoxServersPage() {
           port,
           user,
           token_name: tokenName,
-          node,
-          vm_storage: vmStorage,
-          iso_storage: isoStorage,
           is_active: isActive,
         };
         if (tokenValue.trim()) {
           payload.token_value = tokenValue;
+        }
+        if (node.trim()) {
+          payload.node = node;
         }
         await apiClient.put(`/admin/proxmox-servers/${currentServerId}`, payload);
         setSuccessMessage('Đã cập nhật server thành công');
@@ -210,9 +243,6 @@ export default function AdminProxmoxServersPage() {
           user,
           token_name: tokenName,
           token_value: tokenValue,
-          node,
-          vm_storage: vmStorage,
-          iso_storage: isoStorage,
         };
         await apiClient.post('/admin/proxmox-servers', payload);
         setSuccessMessage('Đã thêm server thành công');
@@ -273,6 +303,29 @@ export default function AdminProxmoxServersPage() {
   const handleCloseResourceDialog = () => {
     setResourceDialogOpen(false);
     setResourceData(null);
+    setCurrentServerId(null);
+  };
+
+  const handleViewStorages = async (serverId: number) => {
+    setCurrentServerId(serverId);
+    setStorageDialogOpen(true);
+    setLoadingStorages(true);
+    setStorageData([]);
+
+    try {
+      const response = await apiClient.get(`/admin/proxmox-servers/${serverId}/storages`);
+      setStorageData(response.data);
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể tải danh sách storage');
+      setStorageDialogOpen(false);
+    } finally {
+      setLoadingStorages(false);
+    }
+  };
+
+  const handleCloseStorageDialog = () => {
+    setStorageDialogOpen(false);
+    setStorageData([]);
     setCurrentServerId(null);
   };
 
@@ -392,6 +445,13 @@ export default function AdminProxmoxServersPage() {
                   >
                     <Storage fontSize="small" />
                   </IconButton>
+                  <Button
+                    size="small"
+                    onClick={() => handleViewStorages(server.id)}
+                    variant="text"
+                  >
+                    Storages
+                  </Button>
                   <IconButton
                     size="small"
                     onClick={() => handleOpenDeleteDialog(server.id)}
@@ -472,39 +532,44 @@ export default function AdminProxmoxServersPage() {
                 ),
               }}
             />
-            <TextField
-              label="Node"
-              value={node}
-              onChange={(e) => setNode(e.target.value)}
-              required
-              fullWidth
-              helperText="Tên node trên Proxmox"
-            />
-            <TextField
-              label="VM Storage"
-              value={vmStorage}
-              onChange={(e) => setVmStorage(e.target.value)}
-              required
-              fullWidth
-              helperText="Storage để lưu VM disk"
-            />
-            <TextField
-              label="ISO Storage"
-              value={isoStorage}
-              onChange={(e) => setIsoStorage(e.target.value)}
-              required
-              fullWidth
-            />
+
+            {!editMode && (
+              <>
+                <Button
+                  variant="outlined"
+                  onClick={handleTestConnection}
+                  disabled={testingConnection || !host || !tokenName || !tokenValue}
+                  fullWidth
+                >
+                  {testingConnection ? 'Đang kiểm tra...' : 'Kiểm tra kết nối'}
+                </Button>
+                {detectedNode && (
+                  <Alert severity="success">
+                    Node được phát hiện: <strong>{detectedNode}</strong>
+                  </Alert>
+                )}
+              </>
+            )}
+
             {editMode && (
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={isActive}
-                    onChange={(e) => setIsActive(e.target.checked)}
-                  />
-                }
-                label="Kích hoạt server"
-              />
+              <>
+                <TextField
+                  label="Node"
+                  value={node}
+                  onChange={(e) => setNode(e.target.value)}
+                  fullWidth
+                  helperText="Tên node (tự động phát hiện, chỉ thay đổi nếu cần)"
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={isActive}
+                      onChange={(e) => setIsActive(e.target.checked)}
+                    />
+                  }
+                  label="Kích hoạt server"
+                />
+              </>
             )}
           </Stack>
         </DialogContent>
@@ -610,6 +675,70 @@ export default function AdminProxmoxServersPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseResourceDialog}>Đóng</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Storage Dialog */}
+      <Dialog open={storageDialogOpen} onClose={handleCloseStorageDialog} maxWidth="md" fullWidth>
+        <DialogTitle>Danh sách Storage</DialogTitle>
+        <DialogContent>
+          {loadingStorages && (
+            <Box py={3} textAlign="center">
+              <Typography color="text.secondary">Đang tải danh sách storage...</Typography>
+            </Box>
+          )}
+          {!loadingStorages && storageData.length > 0 && (
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Storage</TableCell>
+                  <TableCell>Loại</TableCell>
+                  <TableCell>Content</TableCell>
+                  <TableCell align="right">Tổng (GB)</TableCell>
+                  <TableCell align="right">Đã dùng (GB)</TableCell>
+                  <TableCell align="right">Còn lại (GB)</TableCell>
+                  <TableCell>Trạng thái</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {storageData.map((storage, index) => (
+                  <TableRow key={index}>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight="medium">
+                        {storage.storage}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip label={storage.type} size="small" />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" color="text.secondary">
+                        {storage.content}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">{storage.total_gb.toFixed(2)}</TableCell>
+                    <TableCell align="right">{storage.used_gb.toFixed(2)}</TableCell>
+                    <TableCell align="right">{storage.available_gb.toFixed(2)}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={storage.active ? 'Hoạt động' : 'Không hoạt động'}
+                        color={storage.active ? 'success' : 'default'}
+                        size="small"
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          {!loadingStorages && storageData.length === 0 && (
+            <Box py={3} textAlign="center">
+              <Typography color="text.secondary">Không có storage nào</Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseStorageDialog}>Đóng</Button>
         </DialogActions>
       </Dialog>
     </Box>

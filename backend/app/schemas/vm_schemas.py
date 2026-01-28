@@ -10,6 +10,7 @@ class VMCreate(BaseModel):
     disk_gb: int = Field(..., ge=10, le=500)
     os_type: str = "ubuntu-24.04"
     server_id: Optional[int] = None
+    storage: Optional[str] = None
 
 
 class VMResponse(BaseModel):

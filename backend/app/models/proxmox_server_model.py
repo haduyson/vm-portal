@@ -14,8 +14,6 @@ class ProxmoxServer(Base):
     token_name = Column(String, nullable=False)
     token_value = Column(String, nullable=False)
     node = Column(String, nullable=False)
-    vm_storage = Column(String, nullable=False)
-    iso_storage = Column(String, default="local", nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(

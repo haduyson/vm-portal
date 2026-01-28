@@ -10,9 +10,6 @@ class ProxmoxServerCreate(BaseModel):
     user: str = Field(default="root@pam")
     token_name: str = Field(..., min_length=1)
     token_value: str = Field(..., min_length=1)
-    node: str = Field(..., min_length=1)
-    vm_storage: str = Field(..., min_length=1)
-    iso_storage: str = Field(default="local")
 
 
 class ProxmoxServerUpdate(BaseModel):
@@ -23,8 +20,6 @@ class ProxmoxServerUpdate(BaseModel):
     token_name: Optional[str] = None
     token_value: Optional[str] = None
     node: Optional[str] = None
-    vm_storage: Optional[str] = None
-    iso_storage: Optional[str] = None
     is_active: Optional[bool] = None
 
 
@@ -37,8 +32,6 @@ class ProxmoxServerResponse(BaseModel):
     token_name: str
     token_value_masked: str
     node: str
-    vm_storage: str
-    iso_storage: str
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -66,3 +59,13 @@ class ProxmoxServerResourceResponse(BaseModel):
     memory_total_mb: float
     disk_used_gb: float
     disk_total_gb: float
+
+
+class ProxmoxStorageItem(BaseModel):
+    storage: str
+    type: str
+    content: str
+    total_gb: float
+    used_gb: float
+    available_gb: float
+    active: bool

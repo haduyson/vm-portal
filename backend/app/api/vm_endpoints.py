@@ -102,14 +102,26 @@ async def create_vm(
         # Build ProxmoxService and provisioning service
         if server:
             proxmox_svc = ProxmoxService.from_server(server)
-            provisioning_service = VMProvisioningService(proxmox=proxmox_svc)
             node_name = server.node
-            storage_name = server.vm_storage
             server_id = server.id
+
+            # Determine storage
+            if vm_data.storage:
+                storage_name = vm_data.storage
+            else:
+                # Auto-detect: get first storage with "images" content
+                storages = await proxmox_svc.get_storages(content_filter="images")
+                storage_name = storages[0]['storage'] if storages else "local-lvm"
+
+            # Auto-detect ISO storage
+            iso_storages = await proxmox_svc.get_storages(content_filter="iso")
+            iso_storage_name = iso_storages[0]['storage'] if iso_storages else "local"
+
+            provisioning_service = VMProvisioningService(proxmox=proxmox_svc, iso_storage=iso_storage_name)
         else:
             provisioning_service = await VMProvisioningService.create(session)
             node_name = settings.PROXMOX_NODE
-            storage_name = settings.PROXMOX_VM_STORAGE
+            storage_name = vm_data.storage or settings.PROXMOX_VM_STORAGE
             server_id = None
 
         vmid = await provisioning_service.proxmox.get_next_vmid()
@@ -604,3 +616,51 @@ async def list_available_proxmox_servers(
         ))
 
     return responses
+
+
+@proxmox_servers_public_router.get("/proxmox-servers/{server_id}/storages", response_model=List[_ps_schemas.ProxmoxStorageItem])
+async def get_server_storages_for_vm_creation(
+    server_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get available storages for VM creation (images content only)."""
+    result = await session.execute(
+        select(ProxmoxServer).where(
+            ProxmoxServer.id == server_id,
+            ProxmoxServer.is_active == True,
+        )
+    )
+    server = result.scalar_one_or_none()
+    if not server:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Server không tồn tại hoặc không khả dụng",
+        )
+
+    try:
+        proxmox = ProxmoxService.from_server(server)
+        storages = await proxmox.get_storages(content_filter="images")
+
+        result_list = []
+        for s in storages:
+            total = s.get('total', 0)
+            used = s.get('used', 0)
+            avail = s.get('avail', 0)
+
+            result_list.append(_ps_schemas.ProxmoxStorageItem(
+                storage=s.get('storage', ''),
+                type=s.get('type', ''),
+                content=s.get('content', ''),
+                total_gb=round(total / (1024 ** 3), 2) if total else 0,
+                used_gb=round(used / (1024 ** 3), 2) if used else 0,
+                available_gb=round(avail / (1024 ** 3), 2) if avail else 0,
+                active=s.get('active', 0) == 1,
+            ))
+
+        return result_list
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi lấy storage: {str(e)}",
+        )

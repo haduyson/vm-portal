@@ -45,6 +45,16 @@ interface ServerResource {
   disk_total_gb: number;
 }
 
+interface StorageItem {
+  storage: string;
+  type: string;
+  content: string;
+  total_gb: number;
+  used_gb: number;
+  available_gb: number;
+  active: boolean;
+}
+
 export default function VMCreatePage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -53,6 +63,9 @@ export default function VMCreatePage() {
   const [servers, setServers] = useState<ServerResource[]>([]);
   const [serversLoading, setServersLoading] = useState(false);
   const [selectedServerId, setSelectedServerId] = useState<number | null>(null);
+  const [storages, setStorages] = useState<StorageItem[]>([]);
+  const [storagesLoading, setStoragesLoading] = useState(false);
+  const [selectedStorage, setSelectedStorage] = useState<string>('');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -90,12 +103,40 @@ export default function VMCreatePage() {
           return currFree > prevFree ? curr : prev;
         });
         setSelectedServerId(best.id);
+        fetchStorages(best.id);
       }
     } catch (error) {
       console.error('Error fetching servers:', error);
     } finally {
       setServersLoading(false);
     }
+  };
+
+  const fetchStorages = async (serverId: number) => {
+    setStoragesLoading(true);
+    setStorages([]);
+    setSelectedStorage('');
+    try {
+      const response = await apiClient.get(`/proxmox-servers/${serverId}/storages`);
+      const data: StorageItem[] = response.data;
+      setStorages(data);
+      // Auto-select first storage with most available space
+      if (data.length > 0) {
+        const best = data.reduce((prev, curr) =>
+          curr.available_gb > prev.available_gb ? curr : prev
+        );
+        setSelectedStorage(best.storage);
+      }
+    } catch (error) {
+      console.error('Error fetching storages:', error);
+    } finally {
+      setStoragesLoading(false);
+    }
+  };
+
+  const handleServerChange = (serverId: number) => {
+    setSelectedServerId(serverId);
+    fetchStorages(serverId);
   };
 
   const applyPreset = (preset: 'small' | 'medium' | 'large') => {
@@ -121,6 +162,9 @@ export default function VMCreatePage() {
       };
       if (selectedServerId) {
         payload.server_id = selectedServerId;
+      }
+      if (selectedStorage) {
+        payload.storage = selectedStorage;
       }
       await apiClient.post('/vms/', payload);
       setSnackbar({ open: true, message: 'Đã khởi tạo máy ảo thành công!', severity: 'success' });
@@ -183,7 +227,7 @@ export default function VMCreatePage() {
             <Typography variant="h6" gutterBottom>Chọn Server</Typography>
             <RadioGroup
               value={selectedServerId ?? ''}
-              onChange={(e) => setSelectedServerId(Number(e.target.value))}
+              onChange={(e) => handleServerChange(Number(e.target.value))}
             >
               {servers.map((server) => (
                 <Card
@@ -196,7 +240,7 @@ export default function VMCreatePage() {
                     border: selectedServerId === server.id ? 2 : 1,
                     borderColor: selectedServerId === server.id ? 'primary.main' : 'divider',
                   }}
-                  onClick={() => setSelectedServerId(server.id)}
+                  onClick={() => handleServerChange(server.id)}
                 >
                   <FormControlLabel
                     value={server.id}
@@ -248,6 +292,41 @@ export default function VMCreatePage() {
                 </Card>
               ))}
             </RadioGroup>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Storage Selection */}
+      {storagesLoading ? (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, my: 2 }}>
+          <CircularProgress size={20} />
+          <Typography>Đang tải danh sách storage...</Typography>
+        </Box>
+      ) : storages.length > 0 ? (
+        <Card sx={{ maxWidth: 600, mt: 2, mb: 2 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Chọn Storage</Typography>
+            <FormControl fullWidth>
+              <InputLabel>Storage</InputLabel>
+              <Select
+                value={selectedStorage}
+                label="Storage"
+                onChange={(e) => setSelectedStorage(e.target.value)}
+              >
+                {storages.map((storage) => (
+                  <MenuItem key={storage.storage} value={storage.storage}>
+                    <Box sx={{ width: '100%' }}>
+                      <Typography variant="body1">
+                        {storage.storage} ({storage.type})
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Còn lại: {storage.available_gb.toFixed(2)} GB / {storage.total_gb.toFixed(2)} GB
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
           </CardContent>
         </Card>
       ) : null}
