@@ -36,7 +36,7 @@ async def vnc_websocket_proxy(
         await websocket.close(code=1008, reason="VM not found")
         return
 
-    # Get Proxmox host/port from ProxmoxServer model or env fallback
+    # Get Proxmox server credentials and connection info
     if vm.proxmox_server_id:
         srv_result = await session.execute(
             select(ProxmoxServer).where(ProxmoxServer.id == vm.proxmox_server_id)
@@ -44,26 +44,36 @@ async def vnc_websocket_proxy(
         server = srv_result.scalar_one_or_none()
         proxmox_host = server.host if server else settings.PROXMOX_HOST
         proxmox_port = server.port if server else 8006
+        proxmox_user = server.user if server else settings.PROXMOX_USER
+        proxmox_token_name = server.token_name if server else settings.PROXMOX_TOKEN_NAME
+        proxmox_token_value = server.token_value if server else settings.PROXMOX_TOKEN_VALUE
     else:
         proxmox_host = settings.PROXMOX_HOST
         proxmox_port = getattr(settings, 'PROXMOX_PORT', 8006)
+        proxmox_user = settings.PROXMOX_USER
+        proxmox_token_name = settings.PROXMOX_TOKEN_NAME
+        proxmox_token_value = settings.PROXMOX_TOKEN_VALUE
 
     proxmox_ws_url = (
         f"wss://{proxmox_host}:{proxmox_port}/api2/json/nodes/{node}/qemu/{vmid}/vncwebsocket"
         f"?port={port}&vncticket={vncticket}"
     )
 
+    # Proxmox API token auth header
+    auth_header = f"PVEAPIToken={proxmox_user}!{proxmox_token_name}={proxmox_token_value}"
+
     # SSL context to skip verification (self-signed cert)
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
-    # Connect to Proxmox WebSocket
+    # Connect to Proxmox WebSocket with API token auth
     try:
         async with websockets.connect(
             proxmox_ws_url,
             ssl=ssl_context,
             open_timeout=10,
+            additional_headers={"Authorization": auth_header},
         ) as proxmox_ws:
             # Start bidirectional proxy tasks
             async def client_to_proxmox():
