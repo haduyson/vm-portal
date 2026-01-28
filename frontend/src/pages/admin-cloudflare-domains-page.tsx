@@ -43,7 +43,7 @@ import apiClient from '../services/api-client';
 interface CloudflareDomain {
   id: number;
   domain: string;
-  tunnel_name: string;
+  cf_tunnel_name: string;
   cf_api_token: string;
   cf_zone_id: string;
   cf_tunnel_id: string;
@@ -117,7 +117,7 @@ export default function AdminCloudflareDomainsPage() {
     setCfApiToken('');
     setCfZoneId(domainItem.cf_zone_id);
     setCfTunnelId(domainItem.cf_tunnel_id);
-    setTunnelName(domainItem.tunnel_name);
+    setTunnelName(domainItem.cf_tunnel_name);
     setCloudflaredConfigPath(domainItem.cloudflared_config_path);
     setSetupNotes(domainItem.setup_notes || '');
     setIsActive(domainItem.is_active);
@@ -178,7 +178,7 @@ export default function AdminCloudflareDomainsPage() {
           domain,
           cf_zone_id: cfZoneId,
           cf_tunnel_id: cfTunnelId,
-          tunnel_name: tunnelName,
+          cf_tunnel_name: tunnelName,
           cloudflared_config_path: cloudflaredConfigPath,
           setup_notes: setupNotes.trim() || null,
           is_active: isActive,
@@ -194,7 +194,7 @@ export default function AdminCloudflareDomainsPage() {
           cf_api_token: cfApiToken,
           cf_zone_id: cfZoneId,
           cf_tunnel_id: cfTunnelId,
-          tunnel_name: tunnelName,
+          cf_tunnel_name: tunnelName,
           cloudflared_config_path: cloudflaredConfigPath,
           setup_notes: setupNotes.trim() || null,
         });
@@ -392,7 +392,7 @@ export default function AdminCloudflareDomainsPage() {
                   </Typography>
                 </TableCell>
                 <TableCell>
-                  <Chip label={domainItem.tunnel_name} size="small" />
+                  <Chip label={domainItem.cf_tunnel_name} size="small" />
                 </TableCell>
                 <TableCell>
                   <Chip
