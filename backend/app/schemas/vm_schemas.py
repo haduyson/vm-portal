@@ -23,6 +23,7 @@ class VMCreate(BaseModel):
     server_id: Optional[int] = None
     storage: Optional[str] = None
     ssh_subdomain: Optional[str] = None
+    domain_id: Optional[int] = None
 
 
 class VMResponse(BaseModel):

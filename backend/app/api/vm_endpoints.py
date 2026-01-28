@@ -28,6 +28,8 @@ _ps_schemas = importlib.import_module("app.schemas.proxmox-server-schemas")
 _os_schemas = importlib.import_module("app.schemas.os-template-schemas")
 _cf_tunnel_mod = importlib.import_module("app.services.cloudflare-tunnel-service")
 CloudflareTunnelService = _cf_tunnel_mod.CloudflareTunnelService
+_cf_domain_schemas = importlib.import_module("app.schemas.cloudflare-domain-schemas")
+CloudflareDomainPublicResponse = _cf_domain_schemas.CloudflareDomainPublicResponse
 
 router = APIRouter(prefix="/vms", tags=["virtual-machines"])
 proxmox_servers_public_router = APIRouter(tags=["proxmox-servers-public"])
@@ -83,6 +85,9 @@ async def create_vm(
 
         # Validate SSH subdomain if provided
         ssh_subdomain = None
+        cf_domain = None
+        ssh_full_domain = None
+
         if vm_data.ssh_subdomain:
             ssh_subdomain = vm_data.ssh_subdomain.strip().lower()
             valid, error_msg = CloudflareTunnelService.validate_subdomain(ssh_subdomain)
@@ -91,31 +96,74 @@ async def create_vm(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=error_msg,
                 )
+
+            # Resolve Cloudflare domain
+            _cf_domain_model = importlib.import_module("app.models.cloudflare-domain-model")
+            CloudflareDomain = _cf_domain_model.CloudflareDomain
+
+            if vm_data.domain_id:
+                # Use specified domain
+                domain_result = await session.execute(
+                    select(CloudflareDomain).where(
+                        CloudflareDomain.id == vm_data.domain_id,
+                        CloudflareDomain.is_active == True,
+                    )
+                )
+                cf_domain = domain_result.scalar_one_or_none()
+                if not cf_domain:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Domain không tồn tại hoặc không khả dụng",
+                    )
+            else:
+                # Use first active domain as default
+                domain_result = await session.execute(
+                    select(CloudflareDomain)
+                    .where(CloudflareDomain.is_active == True)
+                    .order_by(CloudflareDomain.domain)
+                    .limit(1)
+                )
+                cf_domain = domain_result.scalar_one_or_none()
+                if not cf_domain:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Không có domain nào khả dụng. Vui lòng liên hệ quản trị viên.",
+                    )
+
+            ssh_full_domain = f"{ssh_subdomain}.{cf_domain.domain}"
+
             # Check DB uniqueness
             existing = await session.execute(
                 select(VirtualMachine).where(
-                    VirtualMachine.ssh_domain == f"{ssh_subdomain}.{settings.CF_BASE_DOMAIN}"
+                    VirtualMachine.ssh_domain == ssh_full_domain
                 )
             )
             if existing.scalar_one_or_none():
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Subdomain '{ssh_subdomain}.{settings.CF_BASE_DOMAIN}' đã được sử dụng",
+                    detail=f"Subdomain '{ssh_full_domain}' đã được sử dụng",
                 )
+
             # Check Cloudflare DNS availability
-            if settings.CF_API_TOKEN:
-                try:
-                    cf_service = CloudflareTunnelService()
-                    available = await cf_service.is_subdomain_available(ssh_subdomain)
-                    if not available:
-                        raise HTTPException(
-                            status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"Subdomain '{ssh_subdomain}.{settings.CF_BASE_DOMAIN}' đã tồn tại trên Cloudflare",
-                        )
-                except HTTPException:
-                    raise
-                except Exception as e:
-                    print(f"Warning: Could not check CF subdomain availability: {e}")
+            try:
+                cf_service = CloudflareTunnelService(
+                    api_token=cf_domain.cf_api_token,
+                    zone_id=cf_domain.cf_zone_id,
+                    tunnel_id=cf_domain.cf_tunnel_id,
+                    tunnel_name=cf_domain.cf_tunnel_name,
+                    base_domain=cf_domain.domain,
+                    config_path=cf_domain.cloudflared_config_path,
+                )
+                available = await cf_service.is_subdomain_available(ssh_subdomain)
+                if not available:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Subdomain '{ssh_full_domain}' đã tồn tại trên Cloudflare",
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                print(f"Warning: Could not check CF subdomain availability: {e}")
 
         # Resolve Proxmox server
         server = None
@@ -206,7 +254,7 @@ async def create_vm(
             status="creating",
             proxmox_node=node_name,
             storage=storage_name,
-            ssh_domain=f"{ssh_subdomain}.{settings.CF_BASE_DOMAIN}" if ssh_subdomain else None,
+            ssh_domain=ssh_full_domain if ssh_subdomain else None,
         )
 
         session.add(new_vm)
@@ -495,11 +543,31 @@ async def delete_vm(
         await proxmox.delete_vm(vm.vmid)
 
         # Cleanup Cloudflare tunnel if SSH subdomain was configured
-        if vm.ssh_domain and settings.CF_API_TOKEN and settings.CF_BASE_DOMAIN in (vm.ssh_domain or ""):
+        if vm.ssh_domain:
             try:
-                cf_service = CloudflareTunnelService()
-                subdomain = vm.ssh_domain.replace(f".{settings.CF_BASE_DOMAIN}", "")
-                await cf_service.remove_ssh_ingress(subdomain)
+                # Find matching CloudflareDomain
+                _cf_domain_model = importlib.import_module("app.models.cloudflare-domain-model")
+                CloudflareDomain = _cf_domain_model.CloudflareDomain
+
+                domains_result = await session.execute(
+                    select(CloudflareDomain).where(CloudflareDomain.is_active == True)
+                )
+                domains = domains_result.scalars().all()
+
+                for d in domains:
+                    if vm.ssh_domain.endswith(f".{d.domain}"):
+                        subdomain = vm.ssh_domain.replace(f".{d.domain}", "")
+                        cf_service = CloudflareTunnelService(
+                            api_token=d.cf_api_token,
+                            zone_id=d.cf_zone_id,
+                            tunnel_id=d.cf_tunnel_id,
+                            tunnel_name=d.cf_tunnel_name,
+                            base_domain=d.domain,
+                            config_path=d.cloudflared_config_path,
+                        )
+                        await cf_service.remove_ssh_ingress(subdomain)
+                        print(f"Cleaned up CF tunnel for {vm.ssh_domain}")
+                        break
             except Exception as cf_err:
                 print(f"Warning: Failed to cleanup CF tunnel for {vm.ssh_domain}: {cf_err}")
 
@@ -898,22 +966,75 @@ async def list_available_os_templates(
     return result.scalars().all()
 
 
+@proxmox_servers_public_router.get("/cloudflare-domains/available", response_model=List[CloudflareDomainPublicResponse])
+async def list_available_cloudflare_domains(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """List active Cloudflare domains for VM creation."""
+    _cf_domain_model = importlib.import_module("app.models.cloudflare-domain-model")
+    CloudflareDomain = _cf_domain_model.CloudflareDomain
+
+    result = await session.execute(
+        select(CloudflareDomain)
+        .where(CloudflareDomain.is_active == True)
+        .order_by(CloudflareDomain.domain)
+    )
+    domains = result.scalars().all()
+
+    return [
+        CloudflareDomainPublicResponse(
+            id=d.id,
+            domain=d.domain,
+            is_active=d.is_active,
+        )
+        for d in domains
+    ]
+
+
 # --- SSH Subdomain availability check ---
 
 @router.get("/check-subdomain/{subdomain}")
 async def check_subdomain_availability(
     subdomain: str,
+    domain_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Check if an SSH subdomain is available."""
+    """Check if an SSH subdomain is available on a specific domain."""
     subdomain = subdomain.strip().lower()
     valid, error_msg = CloudflareTunnelService.validate_subdomain(subdomain)
     if not valid:
         return {"available": False, "reason": error_msg}
 
+    # Get Cloudflare domain
+    _cf_domain_model = importlib.import_module("app.models.cloudflare-domain-model")
+    CloudflareDomain = _cf_domain_model.CloudflareDomain
+
+    if domain_id:
+        domain_result = await session.execute(
+            select(CloudflareDomain).where(
+                CloudflareDomain.id == domain_id,
+                CloudflareDomain.is_active == True,
+            )
+        )
+        cf_domain = domain_result.scalar_one_or_none()
+        if not cf_domain:
+            return {"available": False, "reason": "Domain không tồn tại"}
+    else:
+        # Use first active domain
+        domain_result = await session.execute(
+            select(CloudflareDomain)
+            .where(CloudflareDomain.is_active == True)
+            .order_by(CloudflareDomain.domain)
+            .limit(1)
+        )
+        cf_domain = domain_result.scalar_one_or_none()
+        if not cf_domain:
+            return {"available": False, "reason": "Không có domain nào khả dụng"}
+
     # Check DB
-    full_domain = f"{subdomain}.{settings.CF_BASE_DOMAIN}"
+    full_domain = f"{subdomain}.{cf_domain.domain}"
     existing = await session.execute(
         select(VirtualMachine).where(VirtualMachine.ssh_domain == full_domain)
     )
@@ -921,13 +1042,19 @@ async def check_subdomain_availability(
         return {"available": False, "reason": "Subdomain đã được sử dụng"}
 
     # Check Cloudflare DNS
-    if settings.CF_API_TOKEN:
-        try:
-            cf_service = CloudflareTunnelService()
-            cf_available = await cf_service.is_subdomain_available(subdomain)
-            if not cf_available:
-                return {"available": False, "reason": "Subdomain đã tồn tại trên DNS"}
-        except Exception:
-            pass  # If CF check fails, still allow (will validate on create)
+    try:
+        cf_service = CloudflareTunnelService(
+            api_token=cf_domain.cf_api_token,
+            zone_id=cf_domain.cf_zone_id,
+            tunnel_id=cf_domain.cf_tunnel_id,
+            tunnel_name=cf_domain.cf_tunnel_name,
+            base_domain=cf_domain.domain,
+            config_path=cf_domain.cloudflared_config_path,
+        )
+        cf_available = await cf_service.is_subdomain_available(subdomain)
+        if not cf_available:
+            return {"available": False, "reason": "Subdomain đã tồn tại trên DNS"}
+    except Exception:
+        pass  # If CF check fails, still allow (will validate on create)
 
     return {"available": True, "domain": full_domain}

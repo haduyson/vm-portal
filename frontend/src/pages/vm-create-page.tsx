@@ -21,7 +21,7 @@ import {
   RadioGroup,
   FormControlLabel,
   CircularProgress,
-  InputAdornment,
+  Grid,
 } from '@mui/material';
 import apiClient from '../services/api-client';
 
@@ -76,6 +76,12 @@ interface OsTemplateOption {
   sort_order: number;
 }
 
+interface CloudflareDomainOption {
+  id: number;
+  domain: string;
+  is_active: boolean;
+}
+
 export default function VMCreatePage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -89,6 +95,8 @@ export default function VMCreatePage() {
   const [selectedStorage, setSelectedStorage] = useState<string>('');
   const [osTemplates, setOsTemplates] = useState<OsTemplateOption[]>([]);
   const [osTemplatesLoading, setOsTemplatesLoading] = useState(false);
+  const [cfDomains, setCfDomains] = useState<CloudflareDomainOption[]>([]);
+  const [selectedDomainId, setSelectedDomainId] = useState<number | null>(null);
   const [sshSubdomain, setSshSubdomain] = useState('');
   const [subdomainStatus, setSubdomainStatus] = useState<{ available?: boolean; reason?: string; domain?: string } | null>(null);
   const [subdomainChecking, setSubdomainChecking] = useState(false);
@@ -105,6 +113,7 @@ export default function VMCreatePage() {
     fetchQuota();
     fetchServers();
     fetchOsTemplates();
+    fetchCfDomains();
   }, []);
 
   const fetchQuota = async () => {
@@ -155,6 +164,19 @@ export default function VMCreatePage() {
     }
   };
 
+  const fetchCfDomains = async () => {
+    try {
+      const response = await apiClient.get('/cloudflare-domains/available');
+      const data: CloudflareDomainOption[] = response.data;
+      setCfDomains(data);
+      if (data.length > 0) {
+        setSelectedDomainId(data[0].id);
+      }
+    } catch (error) {
+      console.error('Error fetching CF domains:', error);
+    }
+  };
+
   const fetchStorages = async (serverId: number) => {
     setStoragesLoading(true);
     setStorages([]);
@@ -189,7 +211,8 @@ export default function VMCreatePage() {
     if (!trimmed || trimmed.length < 3) return;
     setSubdomainChecking(true);
     try {
-      const response = await apiClient.get(`/vms/check-subdomain/${trimmed}`);
+      const params = selectedDomainId ? { domain_id: selectedDomainId } : {};
+      const response = await apiClient.get(`/vms/check-subdomain/${trimmed}`, { params });
       setSubdomainStatus(response.data);
     } catch {
       setSubdomainStatus(null);
@@ -227,6 +250,9 @@ export default function VMCreatePage() {
       }
       if (sshSubdomain.trim()) {
         payload.ssh_subdomain = sshSubdomain.trim().toLowerCase();
+        if (selectedDomainId) {
+          payload.domain_id = selectedDomainId;
+        }
       }
       await apiClient.post('/vms/', payload);
       setSnackbar({ open: true, message: 'Đã khởi tạo máy ảo thành công!', severity: 'success' });
@@ -490,27 +516,59 @@ export default function VMCreatePage() {
               </Select>
             </FormControl>
 
-            <TextField
-              margin="normal"
-              fullWidth
-              label="SSH Subdomain (tùy chọn)"
-              value={sshSubdomain}
-              onChange={(e) => checkSubdomain(e.target.value)}
-              InputProps={{
-                endAdornment: <InputAdornment position="end">.hasonmedia.com</InputAdornment>,
-              }}
-              helperText={
-                subdomainChecking
-                  ? 'Đang kiểm tra...'
-                  : subdomainStatus
-                    ? subdomainStatus.available
-                      ? `✓ ${subdomainStatus.domain} khả dụng`
-                      : `✗ ${subdomainStatus.reason}`
-                    : 'VD: myvm → myvm.hasonmedia.com (3-30 ký tự, chữ thường, số, gạch ngang)'
-              }
-              error={subdomainStatus !== null && !subdomainStatus.available}
-              color={subdomainStatus?.available ? 'success' : undefined}
-            />
+            {cfDomains.length > 0 ? (
+              <>
+                <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+                  SSH Subdomain (tùy chọn)
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      fullWidth
+                      label="Subdomain"
+                      value={sshSubdomain}
+                      onChange={(e) => checkSubdomain(e.target.value)}
+                      helperText={
+                        subdomainChecking
+                          ? 'Đang kiểm tra...'
+                          : subdomainStatus
+                            ? subdomainStatus.available
+                              ? `✓ ${subdomainStatus.domain} khả dụng`
+                              : `✗ ${subdomainStatus.reason}`
+                            : '3-30 ký tự, chữ thường, số, gạch ngang'
+                      }
+                      error={subdomainStatus !== null && !subdomainStatus.available}
+                      color={subdomainStatus?.available ? 'success' : undefined}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <FormControl fullWidth>
+                      <InputLabel>Domain</InputLabel>
+                      <Select
+                        value={selectedDomainId ?? ''}
+                        label="Domain"
+                        onChange={(e) => {
+                          setSelectedDomainId(Number(e.target.value));
+                          if (sshSubdomain.trim()) {
+                            checkSubdomain(sshSubdomain);
+                          }
+                        }}
+                      >
+                        {cfDomains.map((domain) => (
+                          <MenuItem key={domain.id} value={domain.id}>
+                            {domain.domain}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                </Grid>
+              </>
+            ) : (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                Chưa cấu hình domain. Liên hệ Admin để thêm Cloudflare domain.
+              </Alert>
+            )}
 
             <Button
               type="submit"

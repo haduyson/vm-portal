@@ -33,6 +33,7 @@ import {
   Brightness7 as Brightness7Icon,
   Settings as SettingsIcon,
   Storage as StorageIcon,
+  Cloud as CloudIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../hooks/use-auth-context';
 import { useThemeContext } from '../app';
@@ -78,6 +79,7 @@ export default function AppLayout() {
     { text: 'Tất cả VM', icon: <DnsIcon />, path: '/admin/vms' },
     { text: 'Nhật ký hoạt động', icon: <HistoryIcon />, path: '/admin/audit-logs' },
     { text: 'Server Proxmox', icon: <StorageIcon />, path: '/admin/proxmox-servers' },
+    { text: 'Cloudflare Domains', icon: <CloudIcon />, path: '/admin/cloudflare-domains' },
     { text: 'Cài đặt hệ thống', icon: <SettingsIcon />, path: '/admin/settings' },
   ];
 
