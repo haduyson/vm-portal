@@ -34,6 +34,8 @@ class TestConnectionResponse(BaseModel):
     zone_id: Optional[str] = None
     zone_name: Optional[str] = None
     account_name: Optional[str] = None
+    permissions: list[str] = []
+    missing_permissions: list[str] = []
     error: Optional[str] = None
 
 
@@ -107,63 +109,111 @@ async def test_connection(
     request: TestConnectionRequest,
     current_user: User = Depends(get_current_admin_user),
 ):
-    """Step 1+2: Test CF API connection and get zone info."""
+    """Step 1+2: Test CF API connection, verify permissions, get zone info."""
     try:
         headers = {
             "Authorization": f"Bearer {request.api_token}",
             "Content-Type": "application/json",
         }
+        detected_perms: list[str] = []
+        missing_perms: list[str] = []
+        zone_id = None
+        zone_name = None
+        account_name = None
 
         async with aiohttp.ClientSession() as session:
-            # Get zone info by domain name
+            # 1. Verify token is valid
+            verify_url = f"{CF_API}/user/tokens/verify"
+            async with session.get(verify_url, headers=headers) as resp:
+                verify_data = await resp.json()
+                if not verify_data.get("success"):
+                    return TestConnectionResponse(
+                        success=False,
+                        error="API Token không hợp lệ hoặc đã hết hạn. Vui lòng kiểm tra lại token.",
+                    )
+                detected_perms.append("Token hợp lệ")
+
+            # 2. Get zone info by domain name
             zone_url = f"{CF_API}/zones?name={request.domain}"
             async with session.get(zone_url, headers=headers) as resp:
                 zone_data = await resp.json()
-
                 if not zone_data.get("success"):
                     errors = zone_data.get("errors", [])
                     error_msg = errors[0].get("message") if errors else "Unknown error"
                     return TestConnectionResponse(
                         success=False,
-                        error=f"Zone lookup failed: {error_msg}"
+                        error=f"Zone lookup thất bại: {error_msg}",
                     )
-
                 zones = zone_data.get("result", [])
                 if not zones:
                     return TestConnectionResponse(
                         success=False,
-                        error=f"Domain '{request.domain}' not found in Cloudflare account"
+                        error=f"Domain '{request.domain}' không tìm thấy trong tài khoản Cloudflare",
                     )
-
                 zone_info = zones[0]
                 zone_id = zone_info.get("id")
                 zone_name = zone_info.get("name")
+                # Extract token permissions from zone response
+                zone_perms = zone_info.get("permissions", [])
+                if "#zone:read" in zone_perms:
+                    detected_perms.append("Zone:Read")
+                if "#dns_records:read" in zone_perms:
+                    detected_perms.append("DNS:Read")
+                if "#dns_records:edit" in zone_perms:
+                    detected_perms.append("DNS:Edit")
 
-            # Verify account access
+            # 3. Verify account access (optional — only for display)
             account_url = f"{CF_API}/accounts/{request.account_id}"
             async with session.get(account_url, headers=headers) as resp:
                 account_data = await resp.json()
+                if account_data.get("success"):
+                    account_info = account_data.get("result", {})
+                    account_name = account_info.get("name", "Unknown")
+                    detected_perms.append("Account:Read")
+                else:
+                    # Not critical — just can't show account name
+                    missing_perms.append("Account:Read (tùy chọn)")
 
-                if not account_data.get("success"):
-                    return TestConnectionResponse(
-                        success=False,
-                        error="Account ID không hợp lệ hoặc không có quyền truy cập"
-                    )
+            # 4. Check Cloudflare Tunnel permission (required)
+            tunnel_url = f"{CF_API}/accounts/{request.account_id}/cfd_tunnel?is_deleted=false&per_page=1"
+            async with session.get(tunnel_url, headers=headers) as resp:
+                tunnel_data = await resp.json()
+                if tunnel_data.get("success"):
+                    detected_perms.append("Cloudflare Tunnel:Read")
+                else:
+                    missing_perms.append("Cloudflare Tunnel:Edit")
 
-                account_info = account_data.get("result", {})
-                account_name = account_info.get("name", "Unknown")
+        # Determine overall result — only block on critical missing permissions
+        critical_missing = [p for p in missing_perms if "tùy chọn" not in p]
+        if critical_missing:
+            perm_list = ", ".join(critical_missing)
+            return TestConnectionResponse(
+                success=False,
+                zone_id=zone_id,
+                zone_name=zone_name,
+                account_name=account_name,
+                permissions=detected_perms,
+                missing_permissions=missing_perms,
+                error=(
+                    f"Token thiếu quyền bắt buộc: {perm_list}. "
+                    "Vui lòng tạo API Token mới tại https://dash.cloudflare.com/profile/api-tokens "
+                    "với các quyền: Account > Cloudflare Tunnel > Edit, "
+                    "Zone > DNS > Edit, Zone > Zone > Read."
+                ),
+            )
 
         return TestConnectionResponse(
             success=True,
             zone_id=zone_id,
             zone_name=zone_name,
-            account_name=account_name
+            account_name=account_name,
+            permissions=detected_perms,
         )
 
     except aiohttp.ClientError as e:
-        return TestConnectionResponse(success=False, error=f"Connection error: {str(e)}")
+        return TestConnectionResponse(success=False, error=f"Lỗi kết nối: {str(e)}")
     except Exception as e:
-        return TestConnectionResponse(success=False, error=f"Unexpected error: {str(e)}")
+        return TestConnectionResponse(success=False, error=f"Lỗi: {str(e)}")
 
 
 @router.get("/check-cloudflared", response_model=CheckCloudflaredResponse)

@@ -223,6 +223,50 @@ export default function AdminCloudflareSetupWizardPage() {
               {connectionResult.error}
             </Alert>
           )}
+
+          {/* Show detected permissions */}
+          {connectionResult.permissions?.length > 0 && (
+            <Paper sx={{ p: 2, mb: 2, bgcolor: 'background.default' }}>
+              <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+                Quyền phát hiện được:
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {connectionResult.permissions.map((p: string) => (
+                  <Chip key={p} label={p} color="success" size="small" />
+                ))}
+              </Stack>
+            </Paper>
+          )}
+
+          {/* Show missing permissions */}
+          {connectionResult.missing_permissions?.length > 0 && (
+            <Paper sx={{ p: 2, mb: 2, bgcolor: 'background.default' }}>
+              <Typography variant="body2" fontWeight="bold" color="error" sx={{ mb: 1 }}>
+                Quyền còn thiếu:
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+                {connectionResult.missing_permissions.map((p: string) => (
+                  <Chip key={p} label={p} color="error" size="small" />
+                ))}
+              </Stack>
+              <Alert severity="info" variant="outlined">
+                Tạo API Token mới tại{' '}
+                <a
+                  href="https://dash.cloudflare.com/profile/api-tokens"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Cloudflare Dashboard → API Tokens
+                </a>
+                {' '}với các quyền:
+                <ul style={{ margin: '8px 0', paddingLeft: 20 }}>
+                  <li><strong>Account → Cloudflare Tunnel → Edit</strong></li>
+                  <li><strong>Zone → DNS → Edit</strong></li>
+                  <li><strong>Zone → Zone → Read</strong></li>
+                </ul>
+              </Alert>
+            </Paper>
+          )}
         </>
       )}
 
