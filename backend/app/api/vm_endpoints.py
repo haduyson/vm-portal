@@ -539,7 +539,9 @@ async def delete_vm(
     try:
         proxmox = await create_proxmox_service_for_vm(vm, session)
         if vm.status == "running":
-            await proxmox.stop_vm(vm.vmid)
+            upid = await proxmox.stop_vm(vm.vmid)
+            # Wait for stop to complete before deleting
+            await proxmox.wait_for_task(upid, timeout=120)
         await proxmox.delete_vm(vm.vmid)
 
         # Cleanup Cloudflare tunnel if SSH subdomain was configured
