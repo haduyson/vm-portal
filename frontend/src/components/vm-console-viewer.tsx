@@ -16,6 +16,7 @@ import {
   Fullscreen as FullscreenIcon,
   Close as CloseIcon,
   DesktopWindows as ConsoleIcon,
+  Terminal as TerminalIcon,
 } from '@mui/icons-material';
 import apiClient from '../services/api-client';
 
@@ -30,9 +31,10 @@ interface Props {
   vmId: number;
   vmStatus: string;
   proxmoxNode: string;
+  onOpenSSHConsole?: () => void;
 }
 
-export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode }: Props) {
+export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSHConsole }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,11 +83,16 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode }: Props) 
           const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
           const wsUrl = `${wsProtocol}//${window.location.host}/vnc-ws?vmid=${info.vmid}`;
 
-          const rfb = new RFB(canvasRef.current, wsUrl);
+          const rfb = new RFB(canvasRef.current, wsUrl, {
+            wsProtocols: ['binary'],
+          });
 
           rfb.viewOnly = false;
           rfb.scaleViewport = true;
           rfb.resizeSession = true;
+          rfb.clipViewport = true;
+          rfb.qualityLevel = 6;
+          rfb.compressionLevel = 2;
 
           rfb.addEventListener('connect', () => {
             setConnected(true);
@@ -95,7 +102,7 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode }: Props) 
           rfb.addEventListener('disconnect', (e: any) => {
             setConnected(false);
             if (!e.detail.clean) {
-              setError('Kết nối console bị ngắt');
+              setError('Kết nối VNC bị ngắt. Nếu bạn đang truy cập từ ngoài mạng LAN, vui lòng sử dụng SSH Terminal trong mục Điều Khiển thay thế.');
             }
             setLoading(false);
           });
@@ -147,18 +154,33 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode }: Props) 
   return (
     <>
       <Paper sx={{ p: 3 }}>
-        <Typography variant="h6" gutterBottom>Console</Typography>
+        <Typography variant="h6" gutterBottom>VNC Console</Typography>
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          VNC Console chỉ hoạt động khi truy cập từ mạng LAN. Nếu bạn ở ngoài mạng LAN, vui lòng sử dụng <strong>SSH Console</strong> bên dưới.
+        </Alert>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Mở giao diện console để truy cập trực tiếp vào VM qua trình duyệt.
+          Mở giao diện đồ họa (GUI) của VM. Yêu cầu truy cập từ mạng nội bộ.
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<ConsoleIcon />}
-          onClick={handleOpen}
-          disabled={loading}
-        >
-          Mở Console
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          <Button
+            variant="contained"
+            startIcon={<ConsoleIcon />}
+            onClick={handleOpen}
+            disabled={loading}
+          >
+            Mở VNC Console
+          </Button>
+          {onOpenSSHConsole && (
+            <Button
+              variant="outlined"
+              color="info"
+              startIcon={<TerminalIcon />}
+              onClick={onOpenSSHConsole}
+            >
+              SSH Console
+            </Button>
+          )}
+        </Box>
       </Paper>
 
       <Dialog

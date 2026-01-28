@@ -35,12 +35,14 @@ import {
   VisibilityOff,
   Delete as DeleteIcon,
   ContentCopy as CloneIcon,
+  Terminal as TerminalIcon,
 } from '@mui/icons-material';
 import apiClient from '../services/api-client';
 import VMStatusChip from '../components/vm-status-chip';
 import VmResourceCharts from '../components/vm-resource-metrics-recharts-display';
 import VMConsoleViewer from '../components/vm-console-viewer';
 import VmNetworkPanel from '../components/vm-network-panel';
+import VMSSHConsoleModal from '../components/vm-ssh-terminal-console-modal';
 
 interface VMDetail {
   id: number;
@@ -93,6 +95,9 @@ export default function VMDetailPage() {
   const [cloneDialog, setCloneDialog] = useState(false);
   const [cloneName, setCloneName] = useState('');
   const [cloneLoading, setCloneLoading] = useState(false);
+
+  // SSH Console state
+  const [sshConsoleOpen, setSshConsoleOpen] = useState(false);
 
   // Resize state
   const [resizeCores, setResizeCores] = useState(1);
@@ -534,7 +539,12 @@ export default function VMDetailPage() {
 
       {/* Tab 3: Console */}
       {tabIndex === 3 && (
-        <VMConsoleViewer vmId={vm.id} vmStatus={vm.status} proxmoxNode={vm.proxmox_node} />
+        <VMConsoleViewer
+          vmId={vm.id}
+          vmStatus={vm.status}
+          proxmoxNode={vm.proxmox_node}
+          onOpenSSHConsole={() => setSshConsoleOpen(true)}
+        />
       )}
 
       {/* Tab 4: Controls */}
@@ -563,6 +573,13 @@ export default function VMDetailPage() {
               onClick={() => handleVMAction('restart')}
             >
               Khởi động lại
+            </Button>
+            <Button
+              variant="outlined" color="info" startIcon={<TerminalIcon />}
+              disabled={vm.status !== 'running'}
+              onClick={() => setSshConsoleOpen(true)}
+            >
+              SSH Console
             </Button>
             <Button
               variant="outlined" color="primary" startIcon={<CloneIcon />}
@@ -711,6 +728,15 @@ export default function VMDetailPage() {
           <Button onClick={handleDeleteVM} color="error" variant="contained">Xóa</Button>
         </DialogActions>
       </Dialog>
+
+      {/* SSH Console Modal */}
+      <VMSSHConsoleModal
+        open={sshConsoleOpen}
+        onClose={() => setSshConsoleOpen(false)}
+        vmId={vm.id}
+        vmName={vm.name}
+        vmIpAddress={vm.ip_address}
+      />
 
       <Snackbar
         open={snackbar.open} autoHideDuration={4000}
