@@ -20,6 +20,13 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
+  Card,
+  CardContent,
+  CardActions,
+  Stack,
+  Chip,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   AddCircle as AddCircleIcon,
@@ -45,6 +52,8 @@ interface VM {
 
 export default function VMListPage() {
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [vms, setVms] = useState<VM[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
@@ -54,7 +63,7 @@ export default function VMListPage() {
 
   const fetchVMs = async () => {
     try {
-      const response = await apiClient.get('/vms/');
+      const response = await apiClient.get('/vms');
       const fetchedVms = response.data.vms || [];
       setVms(fetchedVms);
       vmsRef.current = fetchedVms;
@@ -137,106 +146,159 @@ export default function VMListPage() {
     );
   }
 
+  // Render action buttons for a VM
+  const renderVMActions = (vm: VM) => (
+    <Box sx={{ display: 'flex', gap: 0.5, justifyContent: isMobile ? 'flex-start' : 'center' }}>
+      <Tooltip title="Khởi động">
+        <span>
+          <IconButton
+            color="success"
+            size="small"
+            disabled={vm.status !== 'stopped' || actionLoading === vm.id}
+            onClick={() => handleVMAction(vm.id, 'start')}
+          >
+            <PlayArrowIcon />
+          </IconButton>
+        </span>
+      </Tooltip>
+      <Tooltip title="Dừng">
+        <span>
+          <IconButton
+            color="error"
+            size="small"
+            disabled={vm.status !== 'running' || actionLoading === vm.id}
+            onClick={() => handleVMAction(vm.id, 'stop')}
+          >
+            <StopIcon />
+          </IconButton>
+        </span>
+      </Tooltip>
+      <Tooltip title="Khởi động lại">
+        <span>
+          <IconButton
+            color="primary"
+            size="small"
+            disabled={vm.status !== 'running' || actionLoading === vm.id}
+            onClick={() => handleVMAction(vm.id, 'restart')}
+          >
+            <RefreshIcon />
+          </IconButton>
+        </span>
+      </Tooltip>
+      <Tooltip title="Xóa">
+        <span>
+          <IconButton
+            color="error"
+            size="small"
+            disabled={actionLoading === vm.id}
+            onClick={() => setDeleteDialog({ open: true, vmId: vm.id, vmName: vm.name })}
+          >
+            <DeleteIcon />
+          </IconButton>
+        </span>
+      </Tooltip>
+    </Box>
+  );
+
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>
-        Danh Sách Máy Ảo
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+        <Typography variant="h4">Danh Sách Máy Ảo</Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddCircleIcon />}
+          onClick={() => navigate('/vms/create')}
+        >
+          Tạo máy ảo
+        </Button>
+      </Box>
 
-      <TableContainer component={Paper} sx={{ mt: 3 }}>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>Tên VM</TableCell>
-              <TableCell>Trạng thái</TableCell>
-              <TableCell align="right">CPU</TableCell>
-              <TableCell align="right">RAM</TableCell>
-              <TableCell>IP</TableCell>
-              <TableCell>SSH Domain</TableCell>
-              <TableCell>Ngày tạo</TableCell>
-              <TableCell align="center">Hành động</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {vms.map((vm) => (
-              <TableRow key={vm.id} hover>
-                <TableCell>
+      {/* Mobile: Card view */}
+      {isMobile ? (
+        <Stack spacing={2}>
+          {vms.map((vm) => (
+            <Card key={vm.id}>
+              <CardContent sx={{ pb: 1 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
                   <Link
                     component="button"
-                    variant="body1"
+                    variant="h6"
                     onClick={() => navigate(`/vms/${vm.id}`)}
                     sx={{ textAlign: 'left', cursor: 'pointer' }}
                   >
                     {vm.name}
                   </Link>
-                </TableCell>
-                <TableCell>
                   <VMStatusChip status={vm.status} />
-                </TableCell>
-                <TableCell align="right">{vm.cores} cores</TableCell>
-                <TableCell align="right">{Math.round(vm.memory_mb / 1024)} GB</TableCell>
-                <TableCell>{vm.ip_address || '-'}</TableCell>
-                <TableCell>{vm.ssh_domain || '-'}</TableCell>
-                <TableCell>
-                  {new Date(vm.created_at).toLocaleDateString('vi-VN')}
-                </TableCell>
-                <TableCell align="center">
-                  <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-                    <Tooltip title="Khởi động">
-                      <span>
-                        <IconButton
-                          color="success"
-                          size="small"
-                          disabled={vm.status !== 'stopped' || actionLoading === vm.id}
-                          onClick={() => handleVMAction(vm.id, 'start')}
-                        >
-                          <PlayArrowIcon />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    <Tooltip title="Dừng">
-                      <span>
-                        <IconButton
-                          color="error"
-                          size="small"
-                          disabled={vm.status !== 'running' || actionLoading === vm.id}
-                          onClick={() => handleVMAction(vm.id, 'stop')}
-                        >
-                          <StopIcon />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    <Tooltip title="Khởi động lại">
-                      <span>
-                        <IconButton
-                          color="primary"
-                          size="small"
-                          disabled={vm.status !== 'running' || actionLoading === vm.id}
-                          onClick={() => handleVMAction(vm.id, 'restart')}
-                        >
-                          <RefreshIcon />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    <Tooltip title="Xóa">
-                      <span>
-                        <IconButton
-                          color="error"
-                          size="small"
-                          disabled={actionLoading === vm.id}
-                          onClick={() => setDeleteDialog({ open: true, vmId: vm.id, vmName: vm.name })}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                  </Box>
-                </TableCell>
+                </Box>
+                <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: 'wrap', gap: 0.5 }}>
+                  <Chip label={`${vm.cores} CPU`} size="small" variant="outlined" />
+                  <Chip label={`${Math.round(vm.memory_mb / 1024)} GB RAM`} size="small" variant="outlined" />
+                </Stack>
+                {vm.ip_address && (
+                  <Typography variant="body2" color="text.secondary">
+                    IP: {vm.ip_address}
+                  </Typography>
+                )}
+                {vm.ssh_domain && (
+                  <Typography variant="body2" color="text.secondary">
+                    SSH: {vm.ssh_domain}
+                  </Typography>
+                )}
+              </CardContent>
+              <CardActions sx={{ pt: 0 }}>
+                {renderVMActions(vm)}
+              </CardActions>
+            </Card>
+          ))}
+        </Stack>
+      ) : (
+        /* Desktop: Table view */
+        <TableContainer component={Paper}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Tên VM</TableCell>
+                <TableCell>Trạng thái</TableCell>
+                <TableCell align="right">CPU</TableCell>
+                <TableCell align="right">RAM</TableCell>
+                <TableCell>IP</TableCell>
+                <TableCell>SSH Domain</TableCell>
+                <TableCell>Ngày tạo</TableCell>
+                <TableCell align="center">Hành động</TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
+            </TableHead>
+            <TableBody>
+              {vms.map((vm) => (
+                <TableRow key={vm.id} hover>
+                  <TableCell>
+                    <Link
+                      component="button"
+                      variant="body1"
+                      onClick={() => navigate(`/vms/${vm.id}`)}
+                      sx={{ textAlign: 'left', cursor: 'pointer' }}
+                    >
+                      {vm.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <VMStatusChip status={vm.status} />
+                  </TableCell>
+                  <TableCell align="right">{vm.cores} cores</TableCell>
+                  <TableCell align="right">{Math.round(vm.memory_mb / 1024)} GB</TableCell>
+                  <TableCell>{vm.ip_address || '-'}</TableCell>
+                  <TableCell>{vm.ssh_domain || '-'}</TableCell>
+                  <TableCell>
+                    {new Date(vm.created_at).toLocaleDateString('vi-VN')}
+                  </TableCell>
+                  <TableCell align="center">
+                    {renderVMActions(vm)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
 
       <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, vmId: null, vmName: '' })}>
         <DialogTitle>Xác nhận xóa VM</DialogTitle>

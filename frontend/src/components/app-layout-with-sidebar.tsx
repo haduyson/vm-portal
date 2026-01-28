@@ -83,6 +83,11 @@ export default function AppLayout() {
     { text: 'Cài đặt hệ thống', icon: <SettingsIcon />, path: '/admin/settings' },
   ];
 
+  const handleNavigate = (path: string) => {
+    navigate(path);
+    if (isMobile) setMobileOpen(false);
+  };
+
   const drawer = (
     <div>
       <Toolbar>
@@ -93,7 +98,7 @@ export default function AppLayout() {
       <List>
         {menuItems.map((item) => (
           <ListItem key={item.text} disablePadding>
-            <ListItemButton onClick={() => navigate(item.path)}>
+            <ListItemButton onClick={() => handleNavigate(item.path)}>
               <ListItemIcon>{item.icon}</ListItemIcon>
               <ListItemText primary={item.text} />
             </ListItemButton>
@@ -110,7 +115,7 @@ export default function AppLayout() {
           >
             {adminMenuItems.map((item) => (
               <ListItem key={item.text} disablePadding>
-                <ListItemButton onClick={() => navigate(item.path)}>
+                <ListItemButton onClick={() => handleNavigate(item.path)}>
                   <ListItemIcon>{item.icon}</ListItemIcon>
                   <ListItemText primary={item.text} />
                 </ListItemButton>
@@ -182,7 +187,7 @@ export default function AppLayout() {
         component="main"
         sx={{
           flexGrow: 1,
-          p: 3,
+          p: { xs: 2, sm: 3 },
           width: { md: `calc(100% - ${drawerWidth}px)` },
           mt: 8,
         }}
