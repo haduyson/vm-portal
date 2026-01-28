@@ -23,6 +23,9 @@ vnc_websocket_router = _vnc_ws_mod.router
 _admin_cf_domain_mod = importlib.import_module("app.api.admin-cloudflare-domain-endpoints")
 admin_cloudflare_domain_router = _admin_cf_domain_mod.router
 
+_admin_cf_setup_mod = importlib.import_module("app.api.admin-cloudflare-setup-wizard-endpoints")
+admin_cloudflare_setup_router = _admin_cf_setup_mod.router
+
 __all__ = [
     "auth_router",
     "vm_router",
@@ -39,4 +42,5 @@ __all__ = [
     "admin_os_template_router",
     "vnc_websocket_router",
     "admin_cloudflare_domain_router",
+    "admin_cloudflare_setup_router",
 ]

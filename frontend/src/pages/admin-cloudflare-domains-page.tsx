@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -35,6 +36,7 @@ import {
   ExpandMore,
   CheckCircle,
   Error as ErrorIcon,
+  Construction,
 } from '@mui/icons-material';
 import apiClient from '../services/api-client';
 
@@ -51,6 +53,7 @@ interface CloudflareDomain {
 }
 
 export default function AdminCloudflareDomainsPage() {
+  const navigate = useNavigate();
   const [domains, setDomains] = useState<CloudflareDomain[]>([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -257,6 +260,15 @@ export default function AdminCloudflareDomainsPage() {
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h4">Quản lý Domain Cloudflare</Typography>
         <Box>
+          <Button
+            variant="contained"
+            color="secondary"
+            startIcon={<Construction />}
+            onClick={() => navigate('/admin/cloudflare-setup')}
+            sx={{ mr: 2 }}
+          >
+            Wizard cài đặt
+          </Button>
           <Button
             variant="outlined"
             startIcon={<Refresh />}

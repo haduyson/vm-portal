@@ -20,6 +20,7 @@ import UserProfileSettingsPage from './pages/user-profile-settings-page';
 import AdminSettingsPage from './pages/admin-settings-page';
 import AdminProxmoxServersPage from './pages/admin-proxmox-servers-page';
 import AdminCloudflareDomainsPage from './pages/admin-cloudflare-domains-page';
+import AdminCloudflareSetupWizardPage from './pages/admin-cloudflare-setup-wizard-page';
 import TwoFactorSetupPage from './pages/two-factor-setup-page';
 
 interface ThemeContextType {
@@ -131,6 +132,7 @@ export default function App() {
                   <Route path="/admin/settings" element={<AdminSettingsPage />} />
                   <Route path="/admin/proxmox-servers" element={<AdminProxmoxServersPage />} />
                   <Route path="/admin/cloudflare-domains" element={<AdminCloudflareDomainsPage />} />
+                  <Route path="/admin/cloudflare-setup" element={<AdminCloudflareSetupWizardPage />} />
                 </Route>
               </Route>
             </Route>

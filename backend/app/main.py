@@ -18,6 +18,7 @@ from app.api import (
     admin_os_template_router,
     vnc_websocket_router,
     admin_cloudflare_domain_router,
+    admin_cloudflare_setup_router,
 )
 
 
@@ -66,6 +67,7 @@ app.include_router(os_templates_public_router, prefix="/api")
 app.include_router(admin_os_template_router, prefix="/api")
 app.include_router(vnc_websocket_router, prefix="/api")
 app.include_router(admin_cloudflare_domain_router, prefix="/api")
+app.include_router(admin_cloudflare_setup_router, prefix="/api")
 
 
 @app.get("/")
