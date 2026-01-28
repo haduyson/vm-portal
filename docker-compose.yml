@@ -35,6 +35,8 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      - /var/lock/qemu-server:/var/lock/qemu-server:ro
+      - /etc/cloudflared:/etc/cloudflared
 
   nginx:
     image: nginx:alpine

@@ -25,7 +25,7 @@ class ProxmoxService:
             token_name=token_name or settings.PROXMOX_TOKEN_NAME,
             token_value=token_value or settings.PROXMOX_TOKEN_VALUE,
             verify_ssl=settings.PROXMOX_VERIFY_SSL,
-            timeout=90,
+            timeout=300,
         )
         self.node = node or settings.PROXMOX_NODE
         self.iso_storage = iso_storage or "local"

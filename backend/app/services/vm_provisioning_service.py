@@ -60,8 +60,8 @@ class VMProvisioningService:
                 # Step 2: Wait for clone to complete
                 await self.proxmox.wait_for_task(upid, timeout=600)
 
-                # Brief delay to ensure clone lock is fully released
-                await asyncio.sleep(15)
+                # Wait for Proxmox lock file to be released after clone
+                await self._wait_for_lock_release(vm.vmid, timeout=120)
 
                 # Step 3: Set hardware (cores, memory)
                 await self.proxmox.set_vm_config(
@@ -195,6 +195,18 @@ class VMProvisioningService:
                     vm.name if vm else "Unknown",
                     str(e),
                 )
+
+    @staticmethod
+    async def _wait_for_lock_release(vmid: int, timeout: int = 120):
+        """Wait until Proxmox lock file for VM is released."""
+        import os
+        lock_path = f"/var/lock/qemu-server/lock-{vmid}.conf"
+        elapsed = 0
+        while os.path.exists(lock_path) and elapsed < timeout:
+            await asyncio.sleep(5)
+            elapsed += 5
+        if os.path.exists(lock_path):
+            print(f"Warning: lock {lock_path} still exists after {timeout}s, proceeding anyway")
 
     async def _poll_vm_readiness(
         self,
