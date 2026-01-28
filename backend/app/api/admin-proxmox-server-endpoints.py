@@ -24,6 +24,13 @@ def _mask_token(token: str) -> str:
     return "****" if token else ""
 
 
+def _parse_excluded_storages(raw: str | None) -> list[str]:
+    """Parse comma-separated excluded_storages string to list."""
+    if not raw:
+        return []
+    return [s.strip() for s in raw.split(",") if s.strip()]
+
+
 def _server_to_response(server: ProxmoxServer) -> schemas.ProxmoxServerResponse:
     return schemas.ProxmoxServerResponse(
         id=server.id,
@@ -34,6 +41,7 @@ def _server_to_response(server: ProxmoxServer) -> schemas.ProxmoxServerResponse:
         token_name=server.token_name,
         token_value_masked=_mask_token(server.token_value),
         node=server.node,
+        excluded_storages=_parse_excluded_storages(server.excluded_storages),
         is_active=server.is_active,
         created_at=server.created_at,
         updated_at=server.updated_at,
@@ -102,6 +110,7 @@ async def create_proxmox_server(
         token_name=data.token_name,
         token_value=data.token_value,
         node=node_name,
+        excluded_storages=",".join(data.excluded_storages) if data.excluded_storages else "",
     )
     session.add(server)
     await session.commit()
@@ -164,6 +173,10 @@ async def update_proxmox_server(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Server với tên '{update_data['name']}' đã tồn tại",
             )
+
+    # Convert excluded_storages list to comma-separated string for DB
+    if "excluded_storages" in update_data:
+        update_data["excluded_storages"] = ",".join(update_data["excluded_storages"] or [])
 
     for key, value in update_data.items():
         setattr(server, key, value)

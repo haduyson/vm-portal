@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -10,6 +10,7 @@ class ProxmoxServerCreate(BaseModel):
     user: str = Field(default="root@pam")
     token_name: str = Field(..., min_length=1)
     token_value: str = Field(..., min_length=1)
+    excluded_storages: Optional[List[str]] = None
 
 
 class ProxmoxServerUpdate(BaseModel):
@@ -21,6 +22,7 @@ class ProxmoxServerUpdate(BaseModel):
     token_value: Optional[str] = None
     node: Optional[str] = None
     is_active: Optional[bool] = None
+    excluded_storages: Optional[List[str]] = None
 
 
 class ProxmoxServerResponse(BaseModel):
@@ -32,6 +34,7 @@ class ProxmoxServerResponse(BaseModel):
     token_name: str
     token_value_masked: str
     node: str
+    excluded_storages: List[str]
     is_active: bool
     created_at: datetime
     updated_at: datetime

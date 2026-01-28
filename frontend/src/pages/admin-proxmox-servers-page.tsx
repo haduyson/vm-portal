@@ -43,6 +43,7 @@ interface ProxmoxServer {
   user: string;
   token_name: string;
   node: string;
+  excluded_storages: string[];
   is_active: boolean;
 }
 
@@ -306,11 +307,18 @@ export default function AdminProxmoxServersPage() {
     setCurrentServerId(null);
   };
 
+  const [excludedStorages, setExcludedStorages] = useState<string[]>([]);
+  const [savingExclusion, setSavingExclusion] = useState(false);
+
   const handleViewStorages = async (serverId: number) => {
     setCurrentServerId(serverId);
     setStorageDialogOpen(true);
     setLoadingStorages(true);
     setStorageData([]);
+
+    // Load current excluded storages from server data
+    const server = servers.find((s) => s.id === serverId);
+    setExcludedStorages(server?.excluded_storages || []);
 
     try {
       const response = await apiClient.get(`/admin/proxmox-servers/${serverId}/storages`);
@@ -323,10 +331,43 @@ export default function AdminProxmoxServersPage() {
     }
   };
 
+  const handleToggleExcludeStorage = async (storageName: string) => {
+    if (!currentServerId) return;
+    setSavingExclusion(true);
+
+    const isCurrentlyExcluded = excludedStorages.includes(storageName);
+    const newExcluded = isCurrentlyExcluded
+      ? excludedStorages.filter((s) => s !== storageName)
+      : [...excludedStorages, storageName];
+
+    try {
+      await apiClient.put(`/admin/proxmox-servers/${currentServerId}`, {
+        excluded_storages: newExcluded,
+      });
+      setExcludedStorages(newExcluded);
+      // Update local servers state
+      setServers((prev) =>
+        prev.map((s) =>
+          s.id === currentServerId ? { ...s, excluded_storages: newExcluded } : s
+        )
+      );
+      setSuccessMessage(
+        isCurrentlyExcluded
+          ? `Đã cho phép người dùng tạo VM trên "${storageName}"`
+          : `Đã chặn người dùng tạo VM trên "${storageName}"`
+      );
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể cập nhật');
+    } finally {
+      setSavingExclusion(false);
+    }
+  };
+
   const handleCloseStorageDialog = () => {
     setStorageDialogOpen(false);
     setStorageData([]);
     setCurrentServerId(null);
+    setExcludedStorages([]);
   };
 
   const calculatePercentage = (used: number, total: number): number => {
@@ -688,48 +729,66 @@ export default function AdminProxmoxServersPage() {
             </Box>
           )}
           {!loadingStorages && storageData.length > 0 && (
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Storage</TableCell>
-                  <TableCell>Loại</TableCell>
-                  <TableCell>Content</TableCell>
-                  <TableCell align="right">Tổng (GB)</TableCell>
-                  <TableCell align="right">Đã dùng (GB)</TableCell>
-                  <TableCell align="right">Còn lại (GB)</TableCell>
-                  <TableCell>Trạng thái</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {storageData.map((storage, index) => (
-                  <TableRow key={index}>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight="medium">
-                        {storage.storage}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Chip label={storage.type} size="small" />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="text.secondary">
-                        {storage.content}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">{storage.total_gb.toFixed(2)}</TableCell>
-                    <TableCell align="right">{storage.used_gb.toFixed(2)}</TableCell>
-                    <TableCell align="right">{storage.available_gb.toFixed(2)}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={storage.active ? 'Hoạt động' : 'Không hoạt động'}
-                        color={storage.active ? 'success' : 'default'}
-                        size="small"
-                      />
-                    </TableCell>
+            <>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Tắt "Cho phép tạo VM" để chặn người dùng tạo VM trên storage đó. Admin vẫn có thể tạo VM trên mọi storage.
+              </Alert>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Storage</TableCell>
+                    <TableCell>Loại</TableCell>
+                    <TableCell>Content</TableCell>
+                    <TableCell align="right">Tổng (GB)</TableCell>
+                    <TableCell align="right">Còn lại (GB)</TableCell>
+                    <TableCell>Trạng thái</TableCell>
+                    <TableCell align="center">Cho phép tạo VM</TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHead>
+                <TableBody>
+                  {storageData.map((storage, index) => {
+                    const isExcluded = excludedStorages.includes(storage.storage);
+                    return (
+                      <TableRow
+                        key={index}
+                        sx={{ opacity: isExcluded ? 0.6 : 1 }}
+                      >
+                        <TableCell>
+                          <Typography variant="body2" fontWeight="medium">
+                            {storage.storage}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={storage.type} size="small" />
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" color="text.secondary">
+                            {storage.content}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">{storage.total_gb.toFixed(2)}</TableCell>
+                        <TableCell align="right">{storage.available_gb.toFixed(2)}</TableCell>
+                        <TableCell>
+                          <Chip
+                            label={storage.active ? 'Hoạt động' : 'Không hoạt động'}
+                            color={storage.active ? 'success' : 'default'}
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Switch
+                            checked={!isExcluded}
+                            onChange={() => handleToggleExcludeStorage(storage.storage)}
+                            disabled={savingExclusion}
+                            color="primary"
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </>
           )}
           {!loadingStorages && storageData.length === 0 && (
             <Box py={3} textAlign="center">

@@ -105,13 +105,25 @@ async def create_vm(
             node_name = server.node
             server_id = server.id
 
+            # Parse excluded storages for this server
+            excluded = set()
+            if server.excluded_storages:
+                excluded = {s.strip() for s in server.excluded_storages.split(",") if s.strip()}
+
             # Determine storage
             if vm_data.storage:
+                # Block non-admin users from using excluded storages
+                if not current_user.is_admin and vm_data.storage in excluded:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Storage '{vm_data.storage}' không được phép sử dụng để tạo VM",
+                    )
                 storage_name = vm_data.storage
             else:
-                # Auto-detect: get first storage with "images" content
+                # Auto-detect: get first allowed storage with "images" content
                 storages = await proxmox_svc.get_storages(content_filter="images")
-                storage_name = storages[0]['storage'] if storages else "local-lvm"
+                allowed = [s for s in storages if s['storage'] not in excluded] if not current_user.is_admin else storages
+                storage_name = allowed[0]['storage'] if allowed else "local-lvm"
 
             # Auto-detect ISO storage
             iso_storages = await proxmox_svc.get_storages(content_filter="iso")
@@ -642,14 +654,23 @@ async def get_server_storages_for_vm_creation(
         proxmox = ProxmoxService.from_server(server)
         storages = await proxmox.get_storages(content_filter="images")
 
+        # Filter out excluded storages for non-admin users
+        excluded = set()
+        if server.excluded_storages:
+            excluded = {s.strip() for s in server.excluded_storages.split(",") if s.strip()}
+
         result_list = []
         for s in storages:
+            storage_name = s.get('storage', '')
+            if storage_name in excluded:
+                continue
+
             total = s.get('total', 0)
             used = s.get('used', 0)
             avail = s.get('avail', 0)
 
             result_list.append(_ps_schemas.ProxmoxStorageItem(
-                storage=s.get('storage', ''),
+                storage=storage_name,
                 type=s.get('type', ''),
                 content=s.get('content', ''),
                 total_gb=round(total / (1024 ** 3), 2) if total else 0,

@@ -14,6 +14,8 @@ class ProxmoxServer(Base):
     token_name = Column(String, nullable=False)
     token_value = Column(String, nullable=False)
     node = Column(String, nullable=False)
+    # Comma-separated storage names excluded from user VM creation
+    excluded_storages = Column(String, nullable=True, default="")
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
