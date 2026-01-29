@@ -96,7 +96,7 @@ class ProxmoxService:
                 try:
                     vms = self.proxmox.nodes(self.node).qemu.get()
                     for vm in vms:
-                        allocated_cores += vm.get("maxcpu", 0)
+                        allocated_cores += vm.get("cpus", 0)
                         allocated_ram_mb += round(vm.get("maxmem", 0) / (1024 * 1024), 2)
                 except Exception:
                     pass
