@@ -13,6 +13,9 @@ class ProxmoxServerCreate(BaseModel):
     password: Optional[str] = None
     excluded_storages: Optional[List[str]] = None
     cloud_init_template_vmid: Optional[int] = None
+    reserve_cpu_percent: Optional[float] = Field(None, ge=0, le=50)
+    reserve_ram_percent: Optional[float] = Field(None, ge=0, le=50)
+    reserve_disk_percent: Optional[float] = Field(None, ge=0, le=50)
 
 
 class ProxmoxServerUpdate(BaseModel):
@@ -27,6 +30,9 @@ class ProxmoxServerUpdate(BaseModel):
     is_active: Optional[bool] = None
     excluded_storages: Optional[List[str]] = None
     cloud_init_template_vmid: Optional[int] = None
+    reserve_cpu_percent: Optional[float] = Field(None, ge=0, le=50)
+    reserve_ram_percent: Optional[float] = Field(None, ge=0, le=50)
+    reserve_disk_percent: Optional[float] = Field(None, ge=0, le=50)
 
 
 class ProxmoxServerResponse(BaseModel):
@@ -41,6 +47,9 @@ class ProxmoxServerResponse(BaseModel):
     node: str
     excluded_storages: List[str]
     cloud_init_template_vmid: Optional[int] = None
+    reserve_cpu_percent: Optional[float] = None
+    reserve_ram_percent: Optional[float] = None
+    reserve_disk_percent: Optional[float] = None
     is_active: bool
     created_at: datetime
     updated_at: datetime

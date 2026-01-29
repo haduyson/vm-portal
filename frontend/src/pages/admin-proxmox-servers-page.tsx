@@ -45,6 +45,9 @@ interface ProxmoxServer {
   node: string;
   excluded_storages: string[];
   cloud_init_template_vmid: number | null;
+  reserve_cpu_percent: number | null;
+  reserve_ram_percent: number | null;
+  reserve_disk_percent: number | null;
   is_active: boolean;
 }
 
@@ -103,6 +106,9 @@ export default function AdminProxmoxServersPage() {
   const [isActive, setIsActive] = useState(true);
   const [detectedNode, setDetectedNode] = useState('');
   const [cloudInitTemplateVmid, setCloudInitTemplateVmid] = useState<string>('');
+  const [reserveCpuPercent, setReserveCpuPercent] = useState<string>('');
+  const [reserveRamPercent, setReserveRamPercent] = useState<string>('');
+  const [reserveDiskPercent, setReserveDiskPercent] = useState<string>('');
 
   // Alerts
   const [successMessage, setSuccessMessage] = useState('');
@@ -136,6 +142,9 @@ export default function AdminProxmoxServersPage() {
     setShowTokenValue(false);
     setDetectedNode('');
     setCloudInitTemplateVmid('');
+    setReserveCpuPercent('');
+    setReserveRamPercent('');
+    setReserveDiskPercent('');
   };
 
   const handleOpenAddDialog = () => {
@@ -155,6 +164,9 @@ export default function AdminProxmoxServersPage() {
     setNode(server.node);
     setIsActive(server.is_active);
     setCloudInitTemplateVmid(server.cloud_init_template_vmid?.toString() || '');
+    setReserveCpuPercent(server.reserve_cpu_percent?.toString() || '');
+    setReserveRamPercent(server.reserve_ram_percent?.toString() || '');
+    setReserveDiskPercent(server.reserve_disk_percent?.toString() || '');
     setEditMode(true);
     setCurrentServerId(server.id);
     setDialogOpen(true);
@@ -212,6 +224,9 @@ export default function AdminProxmoxServersPage() {
       setErrorMessage('');
 
       const templateVmid = cloudInitTemplateVmid.trim() ? parseInt(cloudInitTemplateVmid) : null;
+      const cpuReserve = reserveCpuPercent.trim() ? parseFloat(reserveCpuPercent) : null;
+      const ramReserve = reserveRamPercent.trim() ? parseFloat(reserveRamPercent) : null;
+      const diskReserve = reserveDiskPercent.trim() ? parseFloat(reserveDiskPercent) : null;
 
       if (editMode && currentServerId) {
         const payload: Record<string, unknown> = {
@@ -222,6 +237,9 @@ export default function AdminProxmoxServersPage() {
           token_name: tokenName,
           is_active: isActive,
           cloud_init_template_vmid: templateVmid,
+          reserve_cpu_percent: cpuReserve,
+          reserve_ram_percent: ramReserve,
+          reserve_disk_percent: diskReserve,
         };
         if (tokenValue.trim()) {
           payload.token_value = tokenValue;
@@ -240,6 +258,9 @@ export default function AdminProxmoxServersPage() {
           token_name: tokenName,
           token_value: tokenValue,
           cloud_init_template_vmid: templateVmid,
+          reserve_cpu_percent: cpuReserve,
+          reserve_ram_percent: ramReserve,
+          reserve_disk_percent: diskReserve,
         };
         await apiClient.post('/admin/proxmox-servers', payload);
         setSuccessMessage('Đã thêm server thành công');
@@ -633,6 +654,39 @@ export default function AdminProxmoxServersPage() {
               fullWidth
               helperText="VM ID của template cloud-init (VD: 9000). Để trống nếu không dùng cloud-init."
             />
+
+            <Typography variant="subtitle2" sx={{ mt: 2 }}>
+              Giới hạn dự trữ tài nguyên (%)
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Phần trăm tài nguyên dự trữ cho hệ thống. Để trống = không giới hạn.
+            </Typography>
+            <Stack direction="row" spacing={2}>
+              <TextField
+                label="CPU Reserve %"
+                type="number"
+                value={reserveCpuPercent}
+                onChange={(e) => setReserveCpuPercent(e.target.value)}
+                inputProps={{ min: 0, max: 50, step: 1 }}
+                size="small"
+              />
+              <TextField
+                label="RAM Reserve %"
+                type="number"
+                value={reserveRamPercent}
+                onChange={(e) => setReserveRamPercent(e.target.value)}
+                inputProps={{ min: 0, max: 50, step: 1 }}
+                size="small"
+              />
+              <TextField
+                label="Disk Reserve %"
+                type="number"
+                value={reserveDiskPercent}
+                onChange={(e) => setReserveDiskPercent(e.target.value)}
+                inputProps={{ min: 0, max: 50, step: 1 }}
+                size="small"
+              />
+            </Stack>
           </Stack>
         </DialogContent>
         <DialogActions>

@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Boolean, Column, DateTime, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Float
 from app.database import Base
 
 
@@ -20,6 +20,10 @@ class ProxmoxServer(Base):
     excluded_storages = Column(String, nullable=True, default="")
     # Template VM ID for cloud-init based provisioning (clone source)
     cloud_init_template_vmid = Column(Integer, nullable=True)
+    # Resource reserve percentages (null = unlimited)
+    reserve_cpu_percent = Column(Float, nullable=True)
+    reserve_ram_percent = Column(Float, nullable=True)
+    reserve_disk_percent = Column(Float, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
