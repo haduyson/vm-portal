@@ -482,14 +482,15 @@ export default function AdminProxmoxServersPage() {
                   >
                     <Edit fontSize="small" />
                   </IconButton>
-                  <IconButton
+                  <Button
                     size="small"
                     onClick={() => handleViewResources(server.id)}
-                    title="Xem tài nguyên"
+                    variant="outlined"
                     color="primary"
+                    startIcon={<Storage fontSize="small" />}
                   >
-                    <Storage fontSize="small" />
-                  </IconButton>
+                    Tài nguyên
+                  </Button>
                   <Button
                     size="small"
                     onClick={() => handleViewStorages(server.id)}
