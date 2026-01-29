@@ -426,20 +426,22 @@ export default function AdminProxmoxServersPage() {
               <TableCell>Host</TableCell>
               <TableCell>Node</TableCell>
               <TableCell>Trạng thái</TableCell>
+              <TableCell align="center">Tài nguyên</TableCell>
+              <TableCell align="center">Storages</TableCell>
               <TableCell align="right">Hành động</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {servers.length === 0 && !loading && (
               <TableRow>
-                <TableCell colSpan={5} align="center">
+                <TableCell colSpan={7} align="center">
                   <Typography color="text.secondary">Chưa có server nào</Typography>
                 </TableCell>
               </TableRow>
             )}
             {loading && (
               <TableRow>
-                <TableCell colSpan={5} align="center">
+                <TableCell colSpan={7} align="center">
                   <Typography color="text.secondary">Đang tải...</Typography>
                 </TableCell>
               </TableRow>
@@ -474,6 +476,27 @@ export default function AdminProxmoxServersPage() {
                     size="small"
                   />
                 </TableCell>
+                <TableCell align="center">
+                  <Chip
+                    icon={<Storage fontSize="small" />}
+                    label="Xem"
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                    onClick={() => handleViewResources(server.id)}
+                    sx={{ cursor: 'pointer' }}
+                  />
+                </TableCell>
+                <TableCell align="center">
+                  <Chip
+                    label="Xem"
+                    size="small"
+                    color="info"
+                    variant="outlined"
+                    onClick={() => handleViewStorages(server.id)}
+                    sx={{ cursor: 'pointer' }}
+                  />
+                </TableCell>
                 <TableCell align="right">
                   <IconButton
                     size="small"
@@ -482,22 +505,6 @@ export default function AdminProxmoxServersPage() {
                   >
                     <Edit fontSize="small" />
                   </IconButton>
-                  <Button
-                    size="small"
-                    onClick={() => handleViewResources(server.id)}
-                    variant="outlined"
-                    color="primary"
-                    startIcon={<Storage fontSize="small" />}
-                  >
-                    Tài nguyên
-                  </Button>
-                  <Button
-                    size="small"
-                    onClick={() => handleViewStorages(server.id)}
-                    variant="text"
-                  >
-                    Storages
-                  </Button>
                   <IconButton
                     size="small"
                     onClick={() => handleOpenDeleteDialog(server.id)}
