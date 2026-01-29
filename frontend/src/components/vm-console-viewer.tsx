@@ -405,6 +405,130 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSH
         </Accordion>
       )}
 
+      {/* Termius Guide */}
+      {sshDomain && (
+        <Accordion sx={{ mt: 2 }} defaultExpanded={false}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <TerminalIcon color="secondary" />
+              <Typography variant="h6">Hướng dẫn SSH bằng Termius / PuTTY</Typography>
+              <Chip label="GUI Apps" size="small" variant="outlined" />
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails>
+            <Alert severity="info" sx={{ mb: 3 }}>
+              Termius và PuTTY không hỗ trợ ProxyCommand trực tiếp. Bạn cần chạy <strong>cloudflared proxy</strong> trên máy local trước.
+            </Alert>
+
+            <Stepper activeStep={-1} orientation="vertical">
+              {/* Step 1: Install cloudflared */}
+              <Step active>
+                <StepLabel>
+                  <Typography variant="subtitle1">Cài đặt Cloudflared CLI</Typography>
+                </StepLabel>
+                <StepContent>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Tương tự hướng dẫn Terminal ở trên. Cài <code>cloudflared</code> trên máy tính (1 lần duy nhất).
+                  </Typography>
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.900', mb: 2 }}>
+                    <Typography variant="caption" color="grey.500" display="block" gutterBottom>macOS:</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Typography component="code" sx={{ color: 'success.light', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                        brew install cloudflared
+                      </Typography>
+                      <IconButton size="small" onClick={() => handleCopy('brew install cloudflared', 'termius-brew')}>
+                        {copiedText === 'termius-brew' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" sx={{ color: 'grey.500' }} />}
+                      </IconButton>
+                    </Box>
+                  </Paper>
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.900' }}>
+                    <Typography variant="caption" color="grey.500" display="block" gutterBottom>Windows:</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Typography component="code" sx={{ color: 'success.light', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                        winget install cloudflare.cloudflared
+                      </Typography>
+                      <IconButton size="small" onClick={() => handleCopy('winget install cloudflare.cloudflared', 'termius-winget')}>
+                        {copiedText === 'termius-winget' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" sx={{ color: 'grey.500' }} />}
+                      </IconButton>
+                    </Box>
+                  </Paper>
+                </StepContent>
+              </Step>
+
+              {/* Step 2: Run proxy */}
+              <Step active>
+                <StepLabel>
+                  <Typography variant="subtitle1">Chạy Cloudflared Proxy (giữ Terminal mở)</Typography>
+                </StepLabel>
+                <StepContent>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Mở Terminal/PowerShell và chạy lệnh sau. <strong>Giữ cửa sổ này mở</strong> trong khi dùng Termius.
+                  </Typography>
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.900', mb: 2 }}>
+                    <Typography variant="caption" color="grey.500" display="block" gutterBottom>Lệnh chạy proxy:</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                      <Typography component="code" sx={{ color: 'warning.light', fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>
+                        cloudflared access tcp --hostname {sshDomain} --url localhost:2222
+                      </Typography>
+                      <IconButton size="small" onClick={() => handleCopy(`cloudflared access tcp --hostname ${sshDomain} --url localhost:2222`, 'proxy')}>
+                        {copiedText === 'proxy' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" sx={{ color: 'grey.500' }} />}
+                      </IconButton>
+                    </Box>
+                  </Paper>
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    Proxy sẽ chạy ở <code>localhost:2222</code>. Bạn có thể đổi port khác nếu cần.
+                  </Alert>
+                </StepContent>
+              </Step>
+
+              {/* Step 3: Connect Termius */}
+              <Step active>
+                <StepLabel>
+                  <Typography variant="subtitle1">Kết nối từ Termius</Typography>
+                </StepLabel>
+                <StepContent>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Trong Termius, tạo Host mới với thông tin sau:
+                  </Typography>
+                  <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'action.hover' }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ minWidth: 100 }}>Host:</Typography>
+                        <Chip label="localhost" size="small" color="primary" />
+                        <IconButton size="small" onClick={() => handleCopy('localhost', 'termius-host')}>
+                          {copiedText === 'termius-host' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" />}
+                        </IconButton>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ minWidth: 100 }}>Port:</Typography>
+                        <Chip label="2222" size="small" color="primary" />
+                        <IconButton size="small" onClick={() => handleCopy('2222', 'termius-port')}>
+                          {copiedText === 'termius-port' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" />}
+                        </IconButton>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ minWidth: 100 }}>Username:</Typography>
+                        <Chip label={sshUsername || 'root'} size="small" color="primary" />
+                        <IconButton size="small" onClick={() => handleCopy(sshUsername || 'root', 'termius-user')}>
+                          {copiedText === 'termius-user' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" />}
+                        </IconButton>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ minWidth: 100 }}>Password:</Typography>
+                        <Chip label="Xem ở tab Thông tin" size="small" variant="outlined" />
+                      </Box>
+                    </Box>
+                  </Paper>
+                  <Alert severity="success" icon={<CheckIcon />}>
+                    Kết nối thành công! Lưu ý: Phải giữ Terminal proxy chạy trong khi sử dụng.
+                  </Alert>
+                </StepContent>
+              </Step>
+            </Stepper>
+          </AccordionDetails>
+        </Accordion>
+      )}
+
       <Dialog
         open={open}
         onClose={handleClose}
