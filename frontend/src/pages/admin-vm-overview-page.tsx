@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, Fragment } from 'react';
 import {
   Box,
   Paper,
@@ -28,12 +28,21 @@ import {
   FormControl,
   InputLabel,
   TablePagination,
+  Collapse,
+  Grid,
+  Chip,
 } from '@mui/material';
 import {
   PlayArrow as PlayArrowIcon,
   Stop as StopIcon,
   Delete as DeleteIcon,
   Download as DownloadIcon,
+  KeyboardArrowDown as KeyboardArrowDownIcon,
+  KeyboardArrowUp as KeyboardArrowUpIcon,
+  ContentCopy as ContentCopyIcon,
+  Language as LanguageIcon,
+  Computer as ComputerIcon,
+  Storage as StorageIcon,
 } from '@mui/icons-material';
 import apiClient from '../services/api-client';
 import VMStatusChip from '../components/vm-status-chip';
@@ -50,7 +59,12 @@ interface AdminVM {
   os_type: string;
   ip_address: string | null;
   ssh_domain: string | null;
+  ssh_username: string | null;
+  ssh_password: string | null;
+  proxmox_node: string;
+  storage: string;
   created_at: string;
+  updated_at: string;
 }
 
 interface AdminStats {
@@ -72,7 +86,29 @@ export default function AdminVmOverviewPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const vmsRef = useRef<AdminVM[]>([]);
+
+  const toggleRowExpand = (vmId: number) => {
+    setExpandedRows(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(vmId)) {
+        newSet.delete(vmId);
+      } else {
+        newSet.add(vmId);
+      }
+      return newSet;
+    });
+  };
+
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setSnackbar({ open: true, message: `Đã sao chép ${label}`, severity: 'success' });
+    } catch {
+      setSnackbar({ open: true, message: 'Không thể sao chép', severity: 'error' });
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -279,6 +315,7 @@ export default function AdminVmOverviewPage() {
         <Table>
           <TableHead>
             <TableRow>
+              <TableCell padding="checkbox" />
               <TableCell>VMID</TableCell>
               <TableCell>Tên VM</TableCell>
               <TableCell>Người dùng</TableCell>
@@ -293,74 +330,198 @@ export default function AdminVmOverviewPage() {
           </TableHead>
           <TableBody>
             {paginatedVMs.map((vm) => (
-              <TableRow key={vm.id} hover>
-                <TableCell>{vm.vmid}</TableCell>
-                <TableCell>{vm.name}</TableCell>
-                <TableCell>{vm.username}</TableCell>
-                <TableCell>
-                  <VMStatusChip status={vm.status} />
-                </TableCell>
-                <TableCell align="right">{vm.cores} cores</TableCell>
-                <TableCell align="right">
-                  {Math.round(vm.memory_mb / 1024)} GB
-                </TableCell>
-                <TableCell align="right">{vm.disk_gb} GB</TableCell>
-                <TableCell>{vm.ip_address || '-'}</TableCell>
-                <TableCell>
-                  {new Date(vm.created_at).toLocaleDateString('vi-VN')}
-                </TableCell>
-                <TableCell align="center">
-                  <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-                    <Tooltip title="Khởi động">
-                      <span>
-                        <IconButton
-                          color="success"
-                          size="small"
-                          disabled={vm.status !== 'stopped' || actionLoading === vm.id}
-                          onClick={() => handleVMAction(vm.id, 'start')}
-                        >
-                          <PlayArrowIcon />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    <Tooltip title="Dừng">
-                      <span>
-                        <IconButton
-                          color="error"
-                          size="small"
-                          disabled={vm.status !== 'running' || actionLoading === vm.id}
-                          onClick={() => handleVMAction(vm.id, 'stop')}
-                        >
-                          <StopIcon />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    <Tooltip title="Xóa">
-                      <span>
-                        <IconButton
-                          color="error"
-                          size="small"
-                          disabled={actionLoading === vm.id}
-                          onClick={() => setDeleteDialog({ open: true, vmId: vm.id, vmName: vm.name })}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                  </Box>
-                </TableCell>
-              </TableRow>
+              <Fragment key={vm.id}>
+                <TableRow
+                  hover
+                  sx={{
+                    '& > *': { borderBottom: expandedRows.has(vm.id) ? 'unset' : undefined },
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => toggleRowExpand(vm.id)}
+                >
+                  <TableCell padding="checkbox">
+                    <IconButton size="small">
+                      {expandedRows.has(vm.id) ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                    </IconButton>
+                  </TableCell>
+                  <TableCell>{vm.vmid}</TableCell>
+                  <TableCell>{vm.name}</TableCell>
+                  <TableCell>{vm.username}</TableCell>
+                  <TableCell>
+                    <VMStatusChip status={vm.status} />
+                  </TableCell>
+                  <TableCell align="right">{vm.cores} cores</TableCell>
+                  <TableCell align="right">
+                    {Math.round(vm.memory_mb / 1024)} GB
+                  </TableCell>
+                  <TableCell align="right">{vm.disk_gb} GB</TableCell>
+                  <TableCell>{vm.ip_address || '-'}</TableCell>
+                  <TableCell>
+                    {new Date(vm.created_at).toLocaleDateString('vi-VN')}
+                  </TableCell>
+                  <TableCell align="center" onClick={(e) => e.stopPropagation()}>
+                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                      <Tooltip title="Khởi động">
+                        <span>
+                          <IconButton
+                            color="success"
+                            size="small"
+                            disabled={vm.status !== 'stopped' || actionLoading === vm.id}
+                            onClick={() => handleVMAction(vm.id, 'start')}
+                          >
+                            <PlayArrowIcon />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      <Tooltip title="Dừng">
+                        <span>
+                          <IconButton
+                            color="error"
+                            size="small"
+                            disabled={vm.status !== 'running' || actionLoading === vm.id}
+                            onClick={() => handleVMAction(vm.id, 'stop')}
+                          >
+                            <StopIcon />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      <Tooltip title="Xóa">
+                        <span>
+                          <IconButton
+                            color="error"
+                            size="small"
+                            disabled={actionLoading === vm.id}
+                            onClick={() => setDeleteDialog({ open: true, vmId: vm.id, vmName: vm.name })}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Box>
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell colSpan={11} sx={{ py: 0, bgcolor: 'action.hover' }}>
+                    <Collapse in={expandedRows.has(vm.id)} timeout="auto" unmountOnExit>
+                      <Box sx={{ py: 2, px: 3 }}>
+                        <Grid container spacing={3}>
+                          {/* SSH Domain */}
+                          <Grid item xs={12} md={4}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                              <LanguageIcon fontSize="small" color="primary" />
+                              <Typography variant="subtitle2" color="text.secondary">
+                                SSH Domain
+                              </Typography>
+                            </Box>
+                            {vm.ssh_domain ? (
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Chip
+                                  label={vm.ssh_domain}
+                                  size="small"
+                                  color="primary"
+                                  variant="outlined"
+                                />
+                                <Tooltip title="Sao chép">
+                                  <IconButton
+                                    size="small"
+                                    onClick={(e) => { e.stopPropagation(); copyToClipboard(vm.ssh_domain!, 'SSH domain'); }}
+                                  >
+                                    <ContentCopyIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </Box>
+                            ) : (
+                              <Typography variant="body2" color="text.disabled">Chưa thiết lập</Typography>
+                            )}
+                          </Grid>
+
+                          {/* SSH Credentials */}
+                          <Grid item xs={12} md={4}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                              <ComputerIcon fontSize="small" color="primary" />
+                              <Typography variant="subtitle2" color="text.secondary">
+                                Thông tin SSH
+                              </Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="body2">
+                                  User: <strong>{vm.ssh_username || '-'}</strong>
+                                </Typography>
+                                {vm.ssh_username && (
+                                  <Tooltip title="Sao chép">
+                                    <IconButton
+                                      size="small"
+                                      onClick={(e) => { e.stopPropagation(); copyToClipboard(vm.ssh_username!, 'username'); }}
+                                    >
+                                      <ContentCopyIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                )}
+                              </Box>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="body2">
+                                  Pass: <strong>{vm.ssh_password ? '••••••••' : '-'}</strong>
+                                </Typography>
+                                {vm.ssh_password && (
+                                  <Tooltip title="Sao chép mật khẩu">
+                                    <IconButton
+                                      size="small"
+                                      onClick={(e) => { e.stopPropagation(); copyToClipboard(vm.ssh_password!, 'mật khẩu'); }}
+                                    >
+                                      <ContentCopyIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                )}
+                              </Box>
+                            </Box>
+                          </Grid>
+
+                          {/* Infrastructure Info */}
+                          <Grid item xs={12} md={4}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                              <StorageIcon fontSize="small" color="primary" />
+                              <Typography variant="subtitle2" color="text.secondary">
+                                Hạ tầng
+                              </Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                              <Typography variant="body2">
+                                OS: <strong>{vm.os_type}</strong>
+                              </Typography>
+                              <Typography variant="body2">
+                                Node: <strong>{vm.proxmox_node}</strong>
+                              </Typography>
+                              <Typography variant="body2">
+                                Storage: <strong>{vm.storage}</strong>
+                              </Typography>
+                            </Box>
+                          </Grid>
+                        </Grid>
+
+                        {/* Timestamps */}
+                        <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+                          <Typography variant="caption" color="text.secondary">
+                            Tạo: {new Date(vm.created_at).toLocaleString('vi-VN')} |
+                            Cập nhật: {new Date(vm.updated_at).toLocaleString('vi-VN')}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Collapse>
+                  </TableCell>
+                </TableRow>
+              </Fragment>
             ))}
             {filteredVMs.length === 0 && vms.length > 0 && (
               <TableRow>
-                <TableCell colSpan={10} align="center">
+                <TableCell colSpan={11} align="center">
                   Không tìm thấy VM nào phù hợp.
                 </TableCell>
               </TableRow>
             )}
             {vms.length === 0 && (
               <TableRow>
-                <TableCell colSpan={10} align="center">
+                <TableCell colSpan={11} align="center">
                   Chưa có máy ảo nào trong hệ thống.
                 </TableCell>
               </TableRow>
