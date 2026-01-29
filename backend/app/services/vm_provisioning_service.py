@@ -90,9 +90,10 @@ class VMProvisioningService:
                         else:
                             raise
 
-                # Step 5: Configure cloud-init with custom user-data (includes qemu-guest-agent)
+                # Step 5: Configure cloud-init with basic credentials (template should have SSH)
+                # Note: cicustom requires file on Proxmox server, use ciuser/cipassword instead
                 await self.proxmox.configure_cloud_init_user(
-                    vm.vmid, ssh_username, ssh_password, userdata_file=userdata_file
+                    vm.vmid, ssh_username, ssh_password
                 )
 
                 # Step 6: Start VM
