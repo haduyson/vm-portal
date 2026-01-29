@@ -11,8 +11,9 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     telegram_chat_id = Column(String, nullable=True)
     is_admin = Column(Boolean, default=False, nullable=False)
+    is_suspended = Column(Boolean, default=False, nullable=False)
     max_disk_gb = Column(Integer, nullable=True)  # null = unlimited
-    max_ram_mb = Column(Integer, nullable=True)  # null = unlimited
+    max_ram_gb = Column(Integer, nullable=True)  # null = unlimited
     max_vms = Column(Integer, nullable=True)  # null = unlimited
     max_cpu_cores = Column(Integer, nullable=True)  # null = unlimited
     totp_secret = Column(String, nullable=True)  # null = 2FA not enabled

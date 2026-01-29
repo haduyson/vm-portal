@@ -452,6 +452,51 @@ class ProxmoxService:
 
         return await asyncio.to_thread(_set_password)
 
+    async def get_vm_templates(self) -> list:
+        """Get list of VM templates from Proxmox node."""
+        def _get_templates():
+            try:
+                vms = self.proxmox.nodes(self.node).qemu.get()
+                templates = [
+                    {
+                        "vmid": vm.get("vmid"),
+                        "name": vm.get("name"),
+                        "status": vm.get("status"),
+                        "cores": vm.get("maxcpu", 0),
+                        "memory_mb": round(vm.get("maxmem", 0) / (1024 * 1024), 2),
+                        "disk_gb": round(vm.get("maxdisk", 0) / (1024 ** 3), 2),
+                        "type": "template",
+                    }
+                    for vm in vms
+                    if vm.get("template") == 1
+                ]
+                return templates
+            except Exception:
+                return []
+
+        return await asyncio.to_thread(_get_templates)
+
+    async def get_iso_images(self, storage: str = "local") -> list:
+        """Get list of ISO images from Proxmox storage."""
+        def _get_isos():
+            try:
+                content = self.proxmox.nodes(self.node).storage(storage).content.get()
+                isos = [
+                    {
+                        "volid": item.get("volid"),
+                        "name": item.get("volid", "").split("/")[-1],
+                        "size_gb": round(item.get("size", 0) / (1024 ** 3), 2),
+                        "type": "iso",
+                    }
+                    for item in content
+                    if item.get("content") == "iso"
+                ]
+                return isos
+            except Exception:
+                return []
+
+        return await asyncio.to_thread(_get_isos)
+
 
 async def create_proxmox_service(session: AsyncSession) -> ProxmoxService:
     """Factory: create ProxmoxService with DB config (fallback to env)."""

@@ -7,13 +7,14 @@ from app.config import settings
 class TelegramNotifier:
     """Service for sending Telegram notifications."""
 
-    def __init__(self, bot_token: Optional[str] = None, default_chat_id: Optional[str] = None):
+    def __init__(self, bot_token: Optional[str] = None, default_chat_id: Optional[str] = None, portal_url: Optional[str] = None):
         """
-        Initialize TelegramNotifier with optional bot_token and default_chat_id.
+        Initialize TelegramNotifier with optional bot_token, default_chat_id, and portal_url.
         If not provided, will use values from settings.
         """
         self.bot_token = bot_token or settings.TELEGRAM_BOT_TOKEN
         self.default_chat_id = default_chat_id or settings.TELEGRAM_DEFAULT_CHAT_ID
+        self.portal_url = portal_url or settings.PORTAL_URL
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
 
     @classmethod
@@ -23,7 +24,8 @@ class TelegramNotifier:
         config = await get_telegram_config(session)
         return cls(
             bot_token=config["bot_token"],
-            default_chat_id=config["default_chat_id"]
+            default_chat_id=config["default_chat_id"],
+            portal_url=config["portal_url"]
         )
 
     async def send_message(self, chat_id: str, message: str, parse_mode: str = "Markdown") -> bool:
@@ -76,7 +78,8 @@ class TelegramNotifier:
 *Username:* `{username}`
 *Password:* `{password}`
 
-Kết nối: `ssh {username}@{ssh_domain}`"""
+Kết nối: `ssh {username}@{ssh_domain}`
+🔗 Quản lý VM: {self.portal_url}"""
 
         return await self.send_message(target_chat_id, message)
 
@@ -117,6 +120,7 @@ Vui lòng liên hệ quản trị viên."""
 
 *Tài khoản:* `{username}`
 *Mật khẩu mới:* `{new_password}`{expiry_line}
+🔗 Đăng nhập: {self.portal_url}
 
 Vui lòng đăng nhập và đổi mật khẩu tại trang Hồ sơ."""
 

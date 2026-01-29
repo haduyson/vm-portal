@@ -219,8 +219,8 @@ class QuotaResponse(BaseModel):
     used_vms: int
     max_disk_gb: Optional[int]
     used_disk_gb: int
-    max_ram_mb: Optional[int]
-    used_ram_mb: int
+    max_ram_gb: Optional[int]
+    used_ram_gb: int
     max_cpu_cores: Optional[int]
     used_cpu_cores: int
 
@@ -239,6 +239,7 @@ async def get_quota(
     used_vms = len(user_vms)
     used_disk_gb = sum(vm.disk_gb for vm in user_vms)
     used_ram_mb = sum(vm.memory_mb for vm in user_vms)
+    used_ram_gb = used_ram_mb // 1024  # Convert to GB for display
     used_cpu_cores = sum(vm.cores for vm in user_vms)
 
     return QuotaResponse(
@@ -246,8 +247,8 @@ async def get_quota(
         used_vms=used_vms,
         max_disk_gb=current_user.max_disk_gb,
         used_disk_gb=used_disk_gb,
-        max_ram_mb=current_user.max_ram_mb,
-        used_ram_mb=used_ram_mb,
+        max_ram_gb=current_user.max_ram_gb,
+        used_ram_gb=used_ram_gb,
         max_cpu_cores=current_user.max_cpu_cores,
         used_cpu_cores=used_cpu_cores,
     )

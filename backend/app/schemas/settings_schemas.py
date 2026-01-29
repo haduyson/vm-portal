@@ -11,6 +11,7 @@ class AllSettingsResponse(BaseModel):
     telegram_bot_token: Optional[str]
     telegram_bot_token_masked: str
     telegram_default_chat_id: Optional[str]
+    telegram_portal_url: Optional[str]
     telegram_source: str
 
 
@@ -22,6 +23,7 @@ class AllSettingsUpdate(BaseModel):
     auto_assign_ip_subdomain: Optional[str] = None
     telegram_bot_token: Optional[str] = None
     telegram_default_chat_id: Optional[str] = None
+    telegram_portal_url: Optional[str] = None
 
 
 class PublicFeaturesResponse(BaseModel):

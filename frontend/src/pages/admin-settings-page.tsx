@@ -21,12 +21,22 @@ import {
   TableHead,
   TableRow,
   Paper,
+  Checkbox,
 } from '@mui/material';
 import {
   Visibility,
   VisibilityOff,
   Send as SendIcon,
+  Add as AddIcon,
+  Delete as DeleteIcon,
+  Search as SearchIcon,
 } from '@mui/icons-material';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+} from '@mui/material';
 import apiClient from '../services/api-client';
 
 interface AllSettings {
@@ -38,6 +48,7 @@ interface AllSettings {
   telegram_bot_token: string | null;
   telegram_bot_token_masked: string;
   telegram_default_chat_id: string | null;
+  telegram_portal_url: string | null;
   telegram_source: string;
 }
 
@@ -50,6 +61,23 @@ interface OsTemplate {
   sort_order: number;
 }
 
+interface ProxmoxTemplate {
+  vmid: number;
+  name: string;
+  status: string;
+  cores: number;
+  memory_mb: number;
+  disk_gb: number;
+  type: 'template';
+}
+
+interface ProxmoxIso {
+  volid: string;
+  name: string;
+  size_gb: number;
+  type: 'iso';
+}
+
 export default function AdminSettingsPage() {
   const [settings, setSettings] = useState<AllSettings | null>(null);
   const [featureNoVNC, setFeatureNoVNC] = useState(false);
@@ -59,6 +87,7 @@ export default function AdminSettingsPage() {
   const [tempPasswordExpiry, setTempPasswordExpiry] = useState('60');
   const [botToken, setBotToken] = useState('');
   const [chatId, setChatId] = useState('');
+  const [portalUrl, setPortalUrl] = useState('');
   const [showToken, setShowToken] = useState(false);
   const [loading, setLoading] = useState(false);
   const [testLoading, setTestLoading] = useState(false);
@@ -82,6 +111,7 @@ export default function AdminSettingsPage() {
       setRefreshExpiry(data.refresh_token_expiry_days || '7');
       setTempPasswordExpiry(data.temp_password_expiry_minutes || '60');
       setChatId(data.telegram_default_chat_id || '');
+      setPortalUrl(data.telegram_portal_url || '');
     } catch {
       setErrorMessage('Không thể tải cấu hình');
     }
@@ -106,6 +136,9 @@ export default function AdminSettingsPage() {
       }
       if (chatId.trim()) {
         payload.telegram_default_chat_id = chatId.trim();
+      }
+      if (portalUrl.trim()) {
+        payload.telegram_portal_url = portalUrl.trim();
       }
 
       await apiClient.put('/admin/settings', payload);
@@ -152,6 +185,125 @@ export default function AdminSettingsPage() {
     } catch (error: any) {
       setErrorMessage(error.response?.data?.detail || 'Không thể cập nhật OS template');
     }
+  };
+
+  // OS Template management
+  const [addOsDialog, setAddOsDialog] = useState(false);
+  const [scanDialog, setScanDialog] = useState(false);
+  const [newOs, setNewOs] = useState({ label: '', os_type_key: '', description: '' });
+  const [proxmoxTemplates, setProxmoxTemplates] = useState<ProxmoxTemplate[]>([]);
+  const [proxmoxIsos, setProxmoxIsos] = useState<ProxmoxIso[]>([]);
+  const [selectedTemplates, setSelectedTemplates] = useState<number[]>([]);
+  const [selectedIsos, setSelectedIsos] = useState<string[]>([]);
+  const [scanLoading, setScanLoading] = useState(false);
+
+  const handleAddOsTemplate = async () => {
+    if (!newOs.label.trim() || !newOs.os_type_key.trim()) {
+      setErrorMessage('Vui lòng nhập đủ thông tin');
+      return;
+    }
+    try {
+      const response = await apiClient.post('/admin/os-templates', {
+        label: newOs.label.trim(),
+        os_type_key: newOs.os_type_key.trim(),
+        description: newOs.description.trim() || null,
+        is_enabled: true,
+      });
+      setOsTemplates((prev) => [...prev, response.data]);
+      setAddOsDialog(false);
+      setNewOs({ label: '', os_type_key: '', description: '' });
+      setSuccessMessage('Đã thêm hệ điều hành');
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể thêm OS template');
+    }
+  };
+
+  const handleDeleteOsTemplate = async (templateId: number) => {
+    if (!confirm('Bạn có chắc muốn xóa hệ điều hành này?')) return;
+    try {
+      await apiClient.delete(`/admin/os-templates/${templateId}`);
+      setOsTemplates((prev) => prev.filter((t) => t.id !== templateId));
+      setSuccessMessage('Đã xóa hệ điều hành');
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể xóa OS template');
+    }
+  };
+
+  const handleScanProxmoxTemplates = async () => {
+    setScanLoading(true);
+    setErrorMessage('');
+    try {
+      const response = await apiClient.get('/admin/proxmox-templates');
+      setProxmoxTemplates(response.data.templates || []);
+      setProxmoxIsos(response.data.isos || []);
+      setSelectedTemplates([]);
+      setSelectedIsos([]);
+      setScanDialog(true);
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể quét từ Proxmox');
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
+  const handleAddSelectedItems = async () => {
+    if (selectedTemplates.length === 0 && selectedIsos.length === 0) {
+      setErrorMessage('Vui lòng chọn ít nhất 1 item');
+      return;
+    }
+
+    let addedCount = 0;
+
+    // Add selected templates
+    for (const vmid of selectedTemplates) {
+      const template = proxmoxTemplates.find((t) => t.vmid === vmid);
+      if (!template) continue;
+      try {
+        const response = await apiClient.post('/admin/os-templates', {
+          label: template.name,
+          os_type_key: `template-${vmid}`,
+          description: `VM Template - VMID: ${vmid}, Cores: ${template.cores}, RAM: ${template.memory_mb}MB`,
+          is_enabled: true,
+        });
+        setOsTemplates((prev) => [...prev, response.data]);
+        addedCount++;
+      } catch { /* skip duplicates */ }
+    }
+
+    // Add selected ISOs
+    for (const volid of selectedIsos) {
+      const iso = proxmoxIsos.find((i) => i.volid === volid);
+      if (!iso) continue;
+      try {
+        const response = await apiClient.post('/admin/os-templates', {
+          label: iso.name.replace('.iso', ''),
+          os_type_key: volid,
+          description: `ISO Image - ${iso.size_gb} GB`,
+          is_enabled: true,
+        });
+        setOsTemplates((prev) => [...prev, response.data]);
+        addedCount++;
+      } catch { /* skip duplicates */ }
+    }
+
+    setScanDialog(false);
+    setSelectedTemplates([]);
+    setSelectedIsos([]);
+    if (addedCount > 0) {
+      setSuccessMessage(`Đã thêm ${addedCount} item(s)`);
+    }
+  };
+
+  const handleToggleTemplate = (vmid: number) => {
+    setSelectedTemplates((prev) =>
+      prev.includes(vmid) ? prev.filter((id) => id !== vmid) : [...prev, vmid]
+    );
+  };
+
+  const handleToggleIso = (volid: string) => {
+    setSelectedIsos((prev) =>
+      prev.includes(volid) ? prev.filter((id) => id !== volid) : [...prev, volid]
+    );
   };
 
   return (
@@ -285,6 +437,15 @@ export default function AdminSettingsPage() {
               helperText="Chat ID để nhận thông báo mặc định"
             />
 
+            <TextField
+              label="URL Portal thông báo"
+              value={portalUrl}
+              onChange={(e) => setPortalUrl(e.target.value)}
+              placeholder="https://vm.example.com"
+              fullWidth
+              helperText="URL hiển thị trong thông báo Telegram (tạo user, reset password, VM sẵn sàng)"
+            />
+
             <Button
               variant="outlined"
               startIcon={<SendIcon />}
@@ -299,11 +460,32 @@ export default function AdminSettingsPage() {
       </Card>
 
       {/* OS Templates */}
-      {osTemplates.length > 0 && (
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>Hệ điều hành</Typography>
-            <Divider sx={{ mb: 2 }} />
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6">Hệ điều hành</Typography>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<SearchIcon />}
+                onClick={handleScanProxmoxTemplates}
+                disabled={scanLoading}
+              >
+                {scanLoading ? 'Đang quét...' : 'Quét từ Proxmox'}
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => setAddOsDialog(true)}
+              >
+                Thêm OS
+              </Button>
+            </Box>
+          </Box>
+          <Divider sx={{ mb: 2 }} />
+          {osTemplates.length > 0 ? (
             <TableContainer component={Paper} variant="outlined">
               <Table size="small">
                 <TableHead>
@@ -311,6 +493,7 @@ export default function AdminSettingsPage() {
                     <TableCell>Tên hiển thị</TableCell>
                     <TableCell>Mã OS</TableCell>
                     <TableCell align="center">Bật/Tắt</TableCell>
+                    <TableCell align="center">Xóa</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -326,14 +509,158 @@ export default function AdminSettingsPage() {
                           onChange={(e) => toggleOsTemplate(template.id, e.target.checked)}
                         />
                       </TableCell>
+                      <TableCell align="center">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => handleDeleteOsTemplate(template.id)}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </TableContainer>
-          </CardContent>
-        </Card>
-      )}
+          ) : (
+            <Typography color="text.secondary">Chưa có hệ điều hành nào. Bấm "Thêm OS" để thêm mới.</Typography>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Add OS Dialog */}
+      <Dialog open={addOsDialog} onClose={() => setAddOsDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Thêm hệ điều hành</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Tên hiển thị"
+              value={newOs.label}
+              onChange={(e) => setNewOs({ ...newOs, label: e.target.value })}
+              placeholder="Ubuntu 24.04 LTS"
+              fullWidth
+              required
+            />
+            <TextField
+              label="Mã OS (os_type_key)"
+              value={newOs.os_type_key}
+              onChange={(e) => setNewOs({ ...newOs, os_type_key: e.target.value })}
+              placeholder="ubuntu-2404"
+              fullWidth
+              required
+              helperText="Mã định danh duy nhất, phải trùng với tên template trong Proxmox"
+            />
+            <TextField
+              label="Mô tả (tùy chọn)"
+              value={newOs.description}
+              onChange={(e) => setNewOs({ ...newOs, description: e.target.value })}
+              placeholder="Ubuntu Server 24.04 với QEMU Guest Agent"
+              fullWidth
+              multiline
+              rows={2}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddOsDialog(false)}>Hủy</Button>
+          <Button variant="contained" onClick={handleAddOsTemplate}>Thêm</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Scan Proxmox Dialog */}
+      <Dialog open={scanDialog} onClose={() => setScanDialog(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Quét từ Proxmox</DialogTitle>
+        <DialogContent>
+          {/* VM Templates Section */}
+          <Typography variant="subtitle1" fontWeight="bold" sx={{ mt: 1 }}>
+            VM Templates ({proxmoxTemplates.length})
+          </Typography>
+          {proxmoxTemplates.length > 0 ? (
+            <TableContainer component={Paper} variant="outlined" sx={{ mt: 1, mb: 2 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        checked={selectedTemplates.length === proxmoxTemplates.length && proxmoxTemplates.length > 0}
+                        indeterminate={selectedTemplates.length > 0 && selectedTemplates.length < proxmoxTemplates.length}
+                        onChange={(e) => setSelectedTemplates(e.target.checked ? proxmoxTemplates.map((t) => t.vmid) : [])}
+                      />
+                    </TableCell>
+                    <TableCell>VMID</TableCell>
+                    <TableCell>Tên</TableCell>
+                    <TableCell>Cores</TableCell>
+                    <TableCell>RAM</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {proxmoxTemplates.map((t) => (
+                    <TableRow key={t.vmid} hover onClick={() => handleToggleTemplate(t.vmid)} sx={{ cursor: 'pointer' }}>
+                      <TableCell padding="checkbox">
+                        <Checkbox checked={selectedTemplates.includes(t.vmid)} />
+                      </TableCell>
+                      <TableCell>{t.vmid}</TableCell>
+                      <TableCell>{t.name}</TableCell>
+                      <TableCell>{t.cores}</TableCell>
+                      <TableCell>{t.memory_mb} MB</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : (
+            <Typography color="text.secondary" sx={{ mb: 2 }}>Không có VM template nào</Typography>
+          )}
+
+          {/* ISO Images Section */}
+          <Typography variant="subtitle1" fontWeight="bold">
+            ISO Images ({proxmoxIsos.length})
+          </Typography>
+          {proxmoxIsos.length > 0 ? (
+            <TableContainer component={Paper} variant="outlined" sx={{ mt: 1 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        checked={selectedIsos.length === proxmoxIsos.length && proxmoxIsos.length > 0}
+                        indeterminate={selectedIsos.length > 0 && selectedIsos.length < proxmoxIsos.length}
+                        onChange={(e) => setSelectedIsos(e.target.checked ? proxmoxIsos.map((i) => i.volid) : [])}
+                      />
+                    </TableCell>
+                    <TableCell>Tên file</TableCell>
+                    <TableCell>Kích thước</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {proxmoxIsos.map((iso) => (
+                    <TableRow key={iso.volid} hover onClick={() => handleToggleIso(iso.volid)} sx={{ cursor: 'pointer' }}>
+                      <TableCell padding="checkbox">
+                        <Checkbox checked={selectedIsos.includes(iso.volid)} />
+                      </TableCell>
+                      <TableCell>{iso.name}</TableCell>
+                      <TableCell>{iso.size_gb} GB</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : (
+            <Typography color="text.secondary">Không có ISO nào</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setScanDialog(false)}>Hủy</Button>
+          <Button
+            variant="contained"
+            onClick={handleAddSelectedItems}
+            disabled={selectedTemplates.length === 0 && selectedIsos.length === 0}
+          >
+            Thêm ({selectedTemplates.length + selectedIsos.length})
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Save Button */}
       <Button

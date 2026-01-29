@@ -23,8 +23,21 @@ import {
   FormControlLabel,
   Checkbox,
   TablePagination,
+  Collapse,
+  LinearProgress,
 } from '@mui/material';
-import { Delete as DeleteIcon, Add as AddIcon, Download as DownloadIcon, Key as KeyIcon, Visibility, VisibilityOff, Casino as RandomIcon } from '@mui/icons-material';
+import {
+  Delete as DeleteIcon,
+  Add as AddIcon,
+  Download as DownloadIcon,
+  Key as KeyIcon,
+  Visibility,
+  VisibilityOff,
+  Casino as RandomIcon,
+  Edit as EditIcon,
+  KeyboardArrowDown as ExpandMoreIcon,
+  KeyboardArrowUp as ExpandLessIcon,
+} from '@mui/icons-material';
 import InputAdornment from '@mui/material/InputAdornment';
 import apiClient from '../services/api-client';
 
@@ -32,13 +45,25 @@ interface AdminUser {
   id: number;
   username: string;
   is_admin: boolean;
+  is_suspended: boolean;
   telegram_chat_id: string | null;
   created_at: string;
   vm_count: number;
   max_disk_gb: number | null;
-  max_ram_mb: number | null;
+  max_ram_gb: number | null;
   max_vms: number | null;
   max_cpu_cores: number | null;
+}
+
+interface UserResourceUsage {
+  vms_used: number;
+  vms_max: number | null;
+  disk_used_gb: number;
+  disk_max_gb: number | null;
+  ram_used_gb: number;
+  ram_max_gb: number | null;
+  cpu_used_cores: number;
+  cpu_max_cores: number | null;
 }
 
 export default function AdminUserManagementPage() {
@@ -47,6 +72,8 @@ export default function AdminUserManagementPage() {
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
   const [createDialog, setCreateDialog] = useState(false);
+  const [editDialog, setEditDialog] = useState(false);
+  const [editUser, setEditUser] = useState<AdminUser | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -56,13 +83,15 @@ export default function AdminUserManagementPage() {
     password: string;
     telegram_sent: boolean;
   } | null>(null);
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [resourceUsage, setResourceUsage] = useState<Record<number, UserResourceUsage>>({});
   const [newUser, setNewUser] = useState({
     username: '',
     password: '',
     telegram_chat_id: '',
     is_admin: false,
     max_disk_gb: 0,
-    max_ram_mb: 0,
+    max_ram_gb: 0,
     max_vms: 0,
     max_cpu_cores: 0,
   });
@@ -136,7 +165,7 @@ export default function AdminUserManagementPage() {
         password: newUser.password,
         is_admin: newUser.is_admin,
         max_disk_gb: newUser.max_disk_gb > 0 ? newUser.max_disk_gb : null,
-        max_ram_mb: newUser.max_ram_mb > 0 ? newUser.max_ram_mb : null,
+        max_ram_gb: newUser.max_ram_gb > 0 ? newUser.max_ram_gb : null,
         max_vms: newUser.max_vms > 0 ? newUser.max_vms : null,
         max_cpu_cores: newUser.max_cpu_cores > 0 ? newUser.max_cpu_cores : null,
       };
@@ -146,7 +175,7 @@ export default function AdminUserManagementPage() {
       const response = await apiClient.post('/admin/users', payload);
       setUsers((prev) => [response.data, ...prev]);
       setCreateDialog(false);
-      setNewUser({ username: '', password: '', telegram_chat_id: '', is_admin: false, max_disk_gb: 0, max_ram_mb: 0, max_vms: 0, max_cpu_cores: 0 });
+      setNewUser({ username: '', password: '', telegram_chat_id: '', is_admin: false, max_disk_gb: 0, max_ram_gb: 0, max_vms: 0, max_cpu_cores: 0 });
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Không thể tạo người dùng');
     }
@@ -164,6 +193,50 @@ export default function AdminUserManagementPage() {
       setResetPasswordDialog(true);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Không thể đặt lại mật khẩu');
+    }
+  };
+
+  const handleEditUser = (user: AdminUser) => {
+    setEditUser(user);
+    setEditDialog(true);
+  };
+
+  const handleSaveEditUser = async () => {
+    if (!editUser) return;
+    try {
+      setError('');
+      const payload: any = {};
+      if (editUser.username) payload.username = editUser.username;
+      payload.is_admin = editUser.is_admin;
+      payload.is_suspended = editUser.is_suspended;
+      if (editUser.telegram_chat_id !== null) payload.telegram_chat_id = editUser.telegram_chat_id;
+      payload.max_disk_gb = editUser.max_disk_gb || null;
+      payload.max_ram_gb = editUser.max_ram_gb || null;
+      payload.max_vms = editUser.max_vms || null;
+      payload.max_cpu_cores = editUser.max_cpu_cores || null;
+
+      const response = await apiClient.patch(`/admin/users/${editUser.id}`, payload);
+      setUsers((prev) => prev.map((u) => (u.id === editUser.id ? response.data : u)));
+      setEditDialog(false);
+      setEditUser(null);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Không thể cập nhật người dùng');
+    }
+  };
+
+  const handleExpandRow = async (userId: number) => {
+    if (expandedRow === userId) {
+      setExpandedRow(null);
+    } else {
+      setExpandedRow(userId);
+      if (!resourceUsage[userId]) {
+        try {
+          const response = await apiClient.get(`/admin/users/${userId}/resource-usage`);
+          setResourceUsage((prev) => ({ ...prev, [userId]: response.data }));
+        } catch (err) {
+          console.error('Failed to fetch resource usage', err);
+        }
+      }
     }
   };
 
@@ -258,9 +331,10 @@ export default function AdminUserManagementPage() {
         <Table>
           <TableHead>
             <TableRow>
+              <TableCell />
               <TableCell>ID</TableCell>
               <TableCell>Tên đăng nhập</TableCell>
-              <TableCell>Quyền Admin</TableCell>
+              <TableCell>Trạng thái</TableCell>
               <TableCell>Telegram</TableCell>
               <TableCell align="right">Số VM</TableCell>
               <TableCell>Ngày tạo</TableCell>
@@ -269,50 +343,137 @@ export default function AdminUserManagementPage() {
           </TableHead>
           <TableBody>
             {paginatedUsers.map((user) => (
-              <TableRow key={user.id} hover>
-                <TableCell>{user.id}</TableCell>
-                <TableCell>
-                  {user.username}
-                  {user.is_admin && (
-                    <Chip
-                      label="Admin"
+              <>
+                <TableRow key={user.id} hover>
+                  <TableCell>
+                    <IconButton size="small" onClick={() => handleExpandRow(user.id)}>
+                      {expandedRow === user.id ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                    </IconButton>
+                  </TableCell>
+                  <TableCell>{user.id}</TableCell>
+                  <TableCell>
+                    {user.username}
+                    {user.is_admin && (
+                      <Chip label="Admin" color="primary" size="small" sx={{ ml: 1 }} />
+                    )}
+                    {user.is_suspended && (
+                      <Chip label="Bị khóa" color="error" size="small" sx={{ ml: 1 }} />
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      checked={user.is_admin}
+                      onChange={() => handleToggleAdmin(user)}
+                      size="small"
+                      title="Quyền Admin"
+                    />
+                  </TableCell>
+                  <TableCell>{user.telegram_chat_id || '-'}</TableCell>
+                  <TableCell align="right">{user.vm_count}</TableCell>
+                  <TableCell>{new Date(user.created_at).toLocaleDateString('vi-VN')}</TableCell>
+                  <TableCell align="center">
+                    <IconButton
+                      color="info"
+                      size="small"
+                      onClick={() => handleEditUser(user)}
+                      title="Chỉnh sửa"
+                    >
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton
                       color="primary"
                       size="small"
-                      sx={{ ml: 1 }}
-                    />
-                  )}
-                </TableCell>
-                <TableCell>
-                  <Switch
-                    checked={user.is_admin}
-                    onChange={() => handleToggleAdmin(user)}
-                    size="small"
-                  />
-                </TableCell>
-                <TableCell>{user.telegram_chat_id || '-'}</TableCell>
-                <TableCell align="right">{user.vm_count}</TableCell>
-                <TableCell>
-                  {new Date(user.created_at).toLocaleDateString('vi-VN')}
-                </TableCell>
-                <TableCell align="center">
-                  <IconButton
-                    color="primary"
-                    size="small"
-                    onClick={() => handleResetPassword(user)}
-                    title="Đặt lại mật khẩu"
-                  >
-                    <KeyIcon />
-                  </IconButton>
-                  <IconButton
-                    color="error"
-                    size="small"
-                    onClick={() => setDeleteTarget(user)}
-                    title="Xóa người dùng"
-                  >
-                    <DeleteIcon />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
+                      onClick={() => handleResetPassword(user)}
+                      title="Đặt lại mật khẩu"
+                    >
+                      <KeyIcon />
+                    </IconButton>
+                    <IconButton
+                      color="error"
+                      size="small"
+                      onClick={() => setDeleteTarget(user)}
+                      title="Xóa người dùng"
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={8}>
+                    <Collapse in={expandedRow === user.id} timeout="auto" unmountOnExit>
+                      <Box sx={{ margin: 2 }}>
+                        <Typography variant="h6" gutterBottom>
+                          Thông tin hạn mức tài nguyên
+                        </Typography>
+                        {resourceUsage[user.id] ? (
+                          <Box sx={{ mb: 2 }}>
+                            <Box sx={{ mb: 2 }}>
+                              <Typography variant="body2" color="text.secondary">
+                                VMs: {resourceUsage[user.id].vms_used} / {resourceUsage[user.id].vms_max || '∞'}
+                              </Typography>
+                              <LinearProgress
+                                variant="determinate"
+                                value={
+                                  resourceUsage[user.id].vms_max
+                                    ? (resourceUsage[user.id].vms_used / resourceUsage[user.id].vms_max!) * 100
+                                    : 0
+                                }
+                                sx={{ height: 8, borderRadius: 1 }}
+                              />
+                            </Box>
+                            <Box sx={{ mb: 2 }}>
+                              <Typography variant="body2" color="text.secondary">
+                                Disk: {resourceUsage[user.id].disk_used_gb.toFixed(2)} GB / {resourceUsage[user.id].disk_max_gb || '∞'} GB
+                              </Typography>
+                              <LinearProgress
+                                variant="determinate"
+                                value={
+                                  resourceUsage[user.id].disk_max_gb
+                                    ? (resourceUsage[user.id].disk_used_gb / resourceUsage[user.id].disk_max_gb!) * 100
+                                    : 0
+                                }
+                                sx={{ height: 8, borderRadius: 1 }}
+                              />
+                            </Box>
+                            <Box sx={{ mb: 2 }}>
+                              <Typography variant="body2" color="text.secondary">
+                                RAM: {resourceUsage[user.id].ram_used_gb.toFixed(2)} GB / {resourceUsage[user.id].ram_max_gb || '∞'} GB
+                              </Typography>
+                              <LinearProgress
+                                variant="determinate"
+                                value={
+                                  resourceUsage[user.id].ram_max_gb
+                                    ? (resourceUsage[user.id].ram_used_gb / resourceUsage[user.id].ram_max_gb!) * 100
+                                    : 0
+                                }
+                                sx={{ height: 8, borderRadius: 1 }}
+                              />
+                            </Box>
+                            <Box sx={{ mb: 2 }}>
+                              <Typography variant="body2" color="text.secondary">
+                                CPU: {resourceUsage[user.id].cpu_used_cores} cores / {resourceUsage[user.id].cpu_max_cores || '∞'} cores
+                              </Typography>
+                              <LinearProgress
+                                variant="determinate"
+                                value={
+                                  resourceUsage[user.id].cpu_max_cores
+                                    ? (resourceUsage[user.id].cpu_used_cores / resourceUsage[user.id].cpu_max_cores!) * 100
+                                    : 0
+                                }
+                                sx={{ height: 8, borderRadius: 1 }}
+                              />
+                            </Box>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            Đang tải...
+                          </Typography>
+                        )}
+                      </Box>
+                    </Collapse>
+                  </TableCell>
+                </TableRow>
+              </>
             ))}
           </TableBody>
         </Table>
@@ -469,11 +630,11 @@ export default function AdminUserManagementPage() {
           />
           <TextField
             margin="dense"
-            label="Giới hạn RAM MB (0 = Không giới hạn)"
+            label="Giới hạn RAM GB (0 = Không giới hạn)"
             type="number"
             fullWidth
-            value={newUser.max_ram_mb}
-            onChange={(e) => setNewUser({ ...newUser, max_ram_mb: parseInt(e.target.value) || 0 })}
+            value={newUser.max_ram_gb}
+            onChange={(e) => setNewUser({ ...newUser, max_ram_gb: parseInt(e.target.value) || 0 })}
             inputProps={{ min: 0 }}
           />
           <TextField
@@ -494,6 +655,93 @@ export default function AdminUserManagementPage() {
             disabled={!newUser.username || !newUser.password}
           >
             Tạo
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={editDialog} onClose={() => setEditDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Chỉnh sửa người dùng</DialogTitle>
+        <DialogContent>
+          {editUser && (
+            <>
+              <TextField
+                autoFocus
+                margin="dense"
+                label="Tên đăng nhập"
+                type="text"
+                fullWidth
+                value={editUser.username}
+                onChange={(e) => setEditUser({ ...editUser, username: e.target.value })}
+              />
+              <TextField
+                margin="dense"
+                label="Telegram Chat ID"
+                type="text"
+                fullWidth
+                value={editUser.telegram_chat_id || ''}
+                onChange={(e) => setEditUser({ ...editUser, telegram_chat_id: e.target.value || null })}
+              />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={editUser.is_admin}
+                    onChange={(e) => setEditUser({ ...editUser, is_admin: e.target.checked })}
+                  />
+                }
+                label="Quyền quản trị"
+              />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={editUser.is_suspended}
+                    onChange={(e) => setEditUser({ ...editUser, is_suspended: e.target.checked })}
+                  />
+                }
+                label="Khóa tài khoản"
+              />
+              <TextField
+                margin="dense"
+                label="Giới hạn số VM (0 = Không giới hạn)"
+                type="number"
+                fullWidth
+                value={editUser.max_vms || 0}
+                onChange={(e) => setEditUser({ ...editUser, max_vms: parseInt(e.target.value) || null })}
+                inputProps={{ min: 0 }}
+              />
+              <TextField
+                margin="dense"
+                label="Giới hạn ổ cứng GB (0 = Không giới hạn)"
+                type="number"
+                fullWidth
+                value={editUser.max_disk_gb || 0}
+                onChange={(e) => setEditUser({ ...editUser, max_disk_gb: parseInt(e.target.value) || null })}
+                inputProps={{ min: 0 }}
+              />
+              <TextField
+                margin="dense"
+                label="Giới hạn RAM GB (0 = Không giới hạn)"
+                type="number"
+                fullWidth
+                value={editUser.max_ram_gb || 0}
+                onChange={(e) => setEditUser({ ...editUser, max_ram_gb: parseInt(e.target.value) || null })}
+                inputProps={{ min: 0 }}
+              />
+              <TextField
+                margin="dense"
+                label="Giới hạn CPU cores (0 = Không giới hạn)"
+                type="number"
+                fullWidth
+                value={editUser.max_cpu_cores || 0}
+                onChange={(e) => setEditUser({ ...editUser, max_cpu_cores: parseInt(e.target.value) || null })}
+                inputProps={{ min: 0 }}
+              />
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditDialog(false)}>Hủy</Button>
+          <Button onClick={handleSaveEditUser} variant="contained">
+            Lưu
           </Button>
         </DialogActions>
       </Dialog>

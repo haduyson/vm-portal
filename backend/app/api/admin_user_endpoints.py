@@ -13,6 +13,7 @@ from app.schemas.admin_schemas import (
     AdminUserResponse,
     AdminUserUpdate,
     AdminPasswordResetResponse,
+    UserResourceUsageResponse,
 )
 from datetime import datetime, timedelta
 from app.core.generate_random_password import generate_random_password
@@ -48,7 +49,7 @@ async def create_user(
         telegram_chat_id=user_data.telegram_chat_id,
         is_admin=user_data.is_admin,
         max_disk_gb=user_data.max_disk_gb,
-        max_ram_mb=user_data.max_ram_mb,
+        max_ram_gb=user_data.max_ram_gb,
         max_vms=user_data.max_vms,
         max_cpu_cores=user_data.max_cpu_cores,
     )
@@ -64,27 +65,30 @@ async def create_user(
 
     # Send Telegram notification
     try:
-        telegram = await TelegramNotifier.from_db(session)
+        telegram = await TelegramNotifier.from_db_config(session)
         if telegram:
             msg = (
                 f"🆕 *Tài khoản mới được tạo*\n\n"
                 f"👤 Username: `{new_user.username}`\n"
                 f"🔐 Password: `{user_data.password}`\n"
-                f"👑 Admin: {'Có' if new_user.is_admin else 'Không'}\n\n"
+                f"👑 Admin: {'Có' if new_user.is_admin else 'Không'}\n"
+                f"🔗 Đăng nhập: {telegram.portal_url}\n\n"
                 f"Vui lòng đổi mật khẩu sau khi đăng nhập."
             )
             # Send to user if they have telegram_chat_id
             if new_user.telegram_chat_id:
-                await telegram.send_message(msg, chat_id=new_user.telegram_chat_id)
+                await telegram.send_message(new_user.telegram_chat_id, msg)
             # Send to admin default chat
-            await telegram.send_message(f"[Admin] {msg}")
+            if telegram.default_chat_id:
+                await telegram.send_message(telegram.default_chat_id, f"[Admin] {msg}")
     except Exception as e:
         print(f"Failed to send Telegram notification: {e}")
 
     return AdminUserResponse(
         id=new_user.id, username=new_user.username, is_admin=new_user.is_admin,
-        telegram_chat_id=new_user.telegram_chat_id, created_at=new_user.created_at,
-        vm_count=0, max_disk_gb=new_user.max_disk_gb, max_ram_mb=new_user.max_ram_mb,
+        is_suspended=new_user.is_suspended, telegram_chat_id=new_user.telegram_chat_id,
+        created_at=new_user.created_at, vm_count=0,
+        max_disk_gb=new_user.max_disk_gb, max_ram_gb=new_user.max_ram_gb,
         max_vms=new_user.max_vms, max_cpu_cores=new_user.max_cpu_cores,
     )
 
@@ -116,8 +120,9 @@ async def list_all_users(
     return [
         AdminUserResponse(
             id=user.id, username=user.username, is_admin=user.is_admin,
-            telegram_chat_id=user.telegram_chat_id, created_at=user.created_at,
-            vm_count=vm_count, max_disk_gb=user.max_disk_gb, max_ram_mb=user.max_ram_mb,
+            is_suspended=user.is_suspended, telegram_chat_id=user.telegram_chat_id,
+            created_at=user.created_at, vm_count=vm_count,
+            max_disk_gb=user.max_disk_gb, max_ram_gb=user.max_ram_gb,
             max_vms=user.max_vms, max_cpu_cores=user.max_cpu_cores,
         )
         for user, vm_count in rows
@@ -131,7 +136,7 @@ async def update_user(
     admin: User = Depends(get_current_admin_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Update user admin status or telegram chat ID."""
+    """Update user properties including username, admin status, suspend status, telegram, and quotas."""
     result = await session.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
@@ -141,6 +146,25 @@ async def update_user(
     if user.id == admin.id and user_update.is_admin is False:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Không thể tự bỏ quyền quản trị của chính mình")
 
+    if user.id == admin.id and user_update.is_suspended is True:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Không thể tự khóa tài khoản của chính mình")
+
+    # Check username uniqueness if username is being changed
+    if user_update.username is not None and user_update.username != user.username:
+        existing = await session.execute(
+            select(User).where(User.username == user_update.username)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Tên đăng nhập đã tồn tại"
+            )
+        user.username = user_update.username
+        await log_audit(
+            session, admin.id, "update_username", "user", user.id,
+            f"Changed username to {user_update.username}",
+        )
+
     if user_update.is_admin is not None:
         old_admin_status = user.is_admin
         user.is_admin = user_update.is_admin
@@ -149,12 +173,22 @@ async def update_user(
                 session, admin.id, "toggle_admin", "user", user.id,
                 f"Changed admin status of {user.username} from {old_admin_status} to {user_update.is_admin}",
             )
+
+    if user_update.is_suspended is not None:
+        old_suspended_status = user.is_suspended
+        user.is_suspended = user_update.is_suspended
+        if old_suspended_status != user_update.is_suspended:
+            await log_audit(
+                session, admin.id, "toggle_suspended", "user", user.id,
+                f"Changed suspended status of {user.username} from {old_suspended_status} to {user_update.is_suspended}",
+            )
+
     if user_update.telegram_chat_id is not None:
         user.telegram_chat_id = user_update.telegram_chat_id
     if user_update.max_disk_gb is not None:
         user.max_disk_gb = user_update.max_disk_gb
-    if user_update.max_ram_mb is not None:
-        user.max_ram_mb = user_update.max_ram_mb
+    if user_update.max_ram_gb is not None:
+        user.max_ram_gb = user_update.max_ram_gb
     if user_update.max_vms is not None:
         user.max_vms = user_update.max_vms
     if user_update.max_cpu_cores is not None:
@@ -170,8 +204,9 @@ async def update_user(
 
     return AdminUserResponse(
         id=user.id, username=user.username, is_admin=user.is_admin,
-        telegram_chat_id=user.telegram_chat_id, created_at=user.created_at,
-        vm_count=vm_count, max_disk_gb=user.max_disk_gb, max_ram_mb=user.max_ram_mb,
+        is_suspended=user.is_suspended, telegram_chat_id=user.telegram_chat_id,
+        created_at=user.created_at, vm_count=vm_count,
+        max_disk_gb=user.max_disk_gb, max_ram_gb=user.max_ram_gb,
         max_vms=user.max_vms, max_cpu_cores=user.max_cpu_cores,
     )
 
@@ -213,6 +248,44 @@ async def reset_user_password(
     )
 
     return AdminPasswordResetResponse(new_password=new_password, telegram_sent=telegram_sent)
+
+
+@router.get("/users/{user_id}/resource-usage", response_model=UserResourceUsageResponse)
+async def get_user_resource_usage(
+    user_id: int,
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get user resource usage summary (VMs, Disk, RAM, CPU)."""
+    # Get user to check quotas
+    user_result = await session.execute(select(User).where(User.id == user_id))
+    user = user_result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy người dùng")
+
+    # Get all VMs for this user
+    vms_result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.user_id == user_id)
+    )
+    vms = vms_result.scalars().all()
+
+    vms_used = len(vms)
+    disk_used_gb = sum(vm.disk_gb for vm in vms)
+    ram_used_mb = sum(vm.memory_mb for vm in vms)
+    ram_used_gb = ram_used_mb / 1024.0  # Convert to GB for response
+    cpu_used_cores = sum(vm.cores for vm in vms)
+
+    return UserResourceUsageResponse(
+        vms_used=vms_used,
+        vms_max=user.max_vms,
+        disk_used_gb=float(disk_used_gb),
+        disk_max_gb=user.max_disk_gb,
+        ram_used_gb=float(ram_used_gb),
+        ram_max_gb=user.max_ram_gb,
+        cpu_used_cores=cpu_used_cores,
+        cpu_max_cores=user.max_cpu_cores,
+    )
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

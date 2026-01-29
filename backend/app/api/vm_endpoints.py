@@ -69,11 +69,12 @@ async def create_vm(
                     detail=f"Đã vượt giới hạn dung lượng ổ cứng ({current_disk_gb + vm_data.disk_gb}/{current_user.max_disk_gb} GB)",
                 )
 
-        if current_user.max_ram_mb is not None:
-            if current_ram_mb + vm_data.memory_mb > current_user.max_ram_mb:
+        if current_user.max_ram_gb is not None:
+            max_ram_mb = current_user.max_ram_gb * 1024  # Convert GB to MB for comparison
+            if current_ram_mb + vm_data.memory_mb > max_ram_mb:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Đã vượt giới hạn RAM ({(current_ram_mb + vm_data.memory_mb) // 1024}/{current_user.max_ram_mb // 1024} GB)",
+                    detail=f"Đã vượt giới hạn RAM ({(current_ram_mb + vm_data.memory_mb) // 1024}/{current_user.max_ram_gb} GB)",
                 )
 
         if current_user.max_cpu_cores is not None:
@@ -669,11 +670,13 @@ async def resize_vm(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Vượt giới hạn CPU cores ({current_cpu_cores + delta_cores}/{current_user.max_cpu_cores})",
         )
-    if current_user.max_ram_mb is not None and current_ram_mb + delta_ram > current_user.max_ram_mb:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Vượt giới hạn RAM ({(current_ram_mb + delta_ram) // 1024}/{current_user.max_ram_mb // 1024} GB)",
-        )
+    if current_user.max_ram_gb is not None:
+        max_ram_mb = current_user.max_ram_gb * 1024  # Convert GB to MB for comparison
+        if current_ram_mb + delta_ram > max_ram_mb:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Vượt giới hạn RAM ({(current_ram_mb + delta_ram) // 1024}/{current_user.max_ram_gb} GB)",
+            )
     if current_user.max_disk_gb is not None and current_disk_gb + delta_disk > current_user.max_disk_gb:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -746,8 +749,10 @@ async def clone_vm(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Đã vượt giới hạn số VM ({current_vm_count}/{current_user.max_vms})")
     if current_user.max_disk_gb is not None and current_disk_gb + vm.disk_gb > current_user.max_disk_gb:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đã vượt giới hạn dung lượng ổ cứng")
-    if current_user.max_ram_mb is not None and current_ram_mb + vm.memory_mb > current_user.max_ram_mb:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đã vượt giới hạn RAM")
+    if current_user.max_ram_gb is not None:
+        max_ram_mb = current_user.max_ram_gb * 1024  # Convert GB to MB for comparison
+        if current_ram_mb + vm.memory_mb > max_ram_mb:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đã vượt giới hạn RAM")
     if current_user.max_cpu_cores is not None and current_cpu_cores + vm.cores > current_user.max_cpu_cores:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đã vượt giới hạn CPU cores")
 

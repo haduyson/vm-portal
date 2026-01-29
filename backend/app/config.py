@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_DEFAULT_CHAT_ID: str = ""
 
+    # Portal
+    PORTAL_URL: str = "http://localhost"
+
     # Cloudflare Tunnel
     CF_TUNNEL_DOMAIN: str = "example.com"
     CF_API_TOKEN: str = ""

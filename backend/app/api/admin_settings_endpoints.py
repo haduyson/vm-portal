@@ -45,6 +45,8 @@ async def get_all_settings(
     else:
         masked_token = "****" if bot_token else ""
 
+    portal_url = await get_setting(session, "telegram_portal_url") or ""
+
     return AllSettingsResponse(
         feature_novnc_console=await _get_setting_with_default(session, "feature_novnc_console"),
         feature_2fa_required=await _get_setting_with_default(session, "feature_2fa_required"),
@@ -54,6 +56,7 @@ async def get_all_settings(
         telegram_bot_token=bot_token,
         telegram_bot_token_masked=masked_token,
         telegram_default_chat_id=telegram_config["default_chat_id"],
+        telegram_portal_url=portal_url,
         telegram_source=telegram_config["source"],
     )
 
@@ -94,6 +97,10 @@ async def update_all_settings(
     if settings_update.telegram_default_chat_id is not None:
         await set_setting(session, "telegram_default_chat_id", settings_update.telegram_default_chat_id)
         changes.append(f"telegram_default_chat_id={settings_update.telegram_default_chat_id}")
+
+    if settings_update.telegram_portal_url is not None:
+        await set_setting(session, "telegram_portal_url", settings_update.telegram_portal_url)
+        changes.append(f"telegram_portal_url={settings_update.telegram_portal_url}")
 
     if changes:
         await log_audit(session, admin.id, "update_settings", "system", None, ", ".join(changes))
@@ -169,8 +176,8 @@ async def test_telegram_settings(
     if not config["default_chat_id"]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Chat ID mặc định chưa được cấu hình")
 
-    telegram = TelegramNotifier(bot_token=config["bot_token"], default_chat_id=config["default_chat_id"])
-    test_message = "🔔 *Thông báo kiểm tra*\n\nCấu hình Telegram Bot đã hoạt động thành công!"
+    telegram = TelegramNotifier(bot_token=config["bot_token"], default_chat_id=config["default_chat_id"], portal_url=config["portal_url"])
+    test_message = f"🔔 *Thông báo kiểm tra*\n\nCấu hình Telegram Bot đã hoạt động thành công!\n🔗 Portal: {config['portal_url'] or 'Chưa cấu hình'}"
     success = await telegram.send_message(config["default_chat_id"], test_message)
 
     if not success:

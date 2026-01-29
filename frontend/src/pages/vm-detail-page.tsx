@@ -107,7 +107,7 @@ export default function VMDetailPage() {
   const [quota, setQuota] = useState<{
     max_vms: number | null; used_vms: number;
     max_disk_gb: number | null; used_disk_gb: number;
-    max_ram_mb: number | null; used_ram_mb: number;
+    max_ram_gb: number | null; used_ram_gb: number;
     max_cpu_cores: number | null; used_cpu_cores: number;
   } | null>(null);
 
@@ -620,9 +620,9 @@ export default function VMDetailPage() {
                     color={quota.max_cpu_cores !== null && quota.used_cpu_cores >= quota.max_cpu_cores ? 'error' : 'default'}
                   />
                   <Chip
-                    label={`RAM: ${Math.round(quota.used_ram_mb / 1024)}${quota.max_ram_mb !== null ? `/${Math.round(quota.max_ram_mb / 1024)}` : ''} GB${quota.max_ram_mb === null ? ' (Không giới hạn)' : ''}`}
+                    label={`RAM: ${quota.used_ram_gb.toFixed(2)}${quota.max_ram_gb !== null ? `/${quota.max_ram_gb}` : ''} GB${quota.max_ram_gb === null ? ' (Không giới hạn)' : ''}`}
                     size="small"
-                    color={quota.max_ram_mb !== null && quota.used_ram_mb >= quota.max_ram_mb ? 'error' : 'default'}
+                    color={quota.max_ram_gb !== null && quota.used_ram_gb >= quota.max_ram_gb ? 'error' : 'default'}
                   />
                   <Chip
                     label={`Disk: ${quota.used_disk_gb}${quota.max_disk_gb !== null ? `/${quota.max_disk_gb}` : ''} GB${quota.max_disk_gb === null ? ' (Không giới hạn)' : ''}`}
