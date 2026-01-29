@@ -21,8 +21,14 @@ class AdminUserCreate(BaseModel):
     @classmethod
     def validate_password(cls, v: str) -> str:
         """Validate password strength."""
-        if len(v) < 6:
-            raise ValueError('Mật khẩu phải có ít nhất 6 ký tự')
+        if len(v) < 8:
+            raise ValueError('Mật khẩu phải có ít nhất 8 ký tự')
+        if not re.search(r'[A-Z]', v):
+            raise ValueError('Mật khẩu phải có ít nhất 1 ký tự in hoa')
+        if not re.search(r'[a-z]', v):
+            raise ValueError('Mật khẩu phải có ít nhất 1 ký tự thường')
+        if not re.search(r'\d', v):
+            raise ValueError('Mật khẩu phải có ít nhất 1 chữ số')
         return v
 
 

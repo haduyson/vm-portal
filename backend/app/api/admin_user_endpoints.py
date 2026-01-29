@@ -62,6 +62,25 @@ async def create_user(
         f"Created user: {new_user.username} (admin: {new_user.is_admin})",
     )
 
+    # Send Telegram notification
+    try:
+        telegram = await TelegramNotifier.from_db(session)
+        if telegram:
+            msg = (
+                f"🆕 *Tài khoản mới được tạo*\n\n"
+                f"👤 Username: `{new_user.username}`\n"
+                f"🔐 Password: `{user_data.password}`\n"
+                f"👑 Admin: {'Có' if new_user.is_admin else 'Không'}\n\n"
+                f"Vui lòng đổi mật khẩu sau khi đăng nhập."
+            )
+            # Send to user if they have telegram_chat_id
+            if new_user.telegram_chat_id:
+                await telegram.send_message(msg, chat_id=new_user.telegram_chat_id)
+            # Send to admin default chat
+            await telegram.send_message(f"[Admin] {msg}")
+    except Exception as e:
+        print(f"Failed to send Telegram notification: {e}")
+
     return AdminUserResponse(
         id=new_user.id, username=new_user.username, is_admin=new_user.is_admin,
         telegram_chat_id=new_user.telegram_chat_id, created_at=new_user.created_at,

@@ -24,7 +24,8 @@ import {
   Checkbox,
   TablePagination,
 } from '@mui/material';
-import { Delete as DeleteIcon, Add as AddIcon, Download as DownloadIcon, Key as KeyIcon } from '@mui/icons-material';
+import { Delete as DeleteIcon, Add as AddIcon, Download as DownloadIcon, Key as KeyIcon, Visibility, VisibilityOff, Casino as RandomIcon } from '@mui/icons-material';
+import InputAdornment from '@mui/material/InputAdornment';
 import apiClient from '../services/api-client';
 
 interface AdminUser {
@@ -65,6 +66,21 @@ export default function AdminUserManagementPage() {
     max_vms: 0,
     max_cpu_cores: 0,
   });
+  const [showPassword, setShowPassword] = useState(false);
+
+  const generatePassword = () => {
+    const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const lower = 'abcdefghijklmnopqrstuvwxyz';
+    const digits = '0123456789';
+    const all = upper + lower + digits;
+    let pwd = upper[Math.floor(Math.random() * upper.length)] +
+              lower[Math.floor(Math.random() * lower.length)] +
+              digits[Math.floor(Math.random() * digits.length)];
+    for (let i = 0; i < 9; i++) pwd += all[Math.floor(Math.random() * all.length)];
+    pwd = pwd.split('').sort(() => Math.random() - 0.5).join('');
+    setNewUser({ ...newUser, password: pwd });
+    setShowPassword(true);
+  };
 
   const fetchUsers = async () => {
     try {
@@ -398,11 +414,23 @@ export default function AdminUserManagementPage() {
           <TextField
             margin="dense"
             label="Mật khẩu"
-            type="password"
+            type={showPassword ? 'text' : 'password'}
             fullWidth
             value={newUser.password}
             onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
             helperText="Tối thiểu 8 ký tự, có chữ hoa, chữ thường và số"
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton onClick={() => setShowPassword(!showPassword)} edge="end" size="small">
+                    {showPassword ? <VisibilityOff /> : <Visibility />}
+                  </IconButton>
+                  <IconButton onClick={generatePassword} edge="end" size="small" title="Tạo mật khẩu ngẫu nhiên">
+                    <RandomIcon />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
           />
           <TextField
             margin="dense"
