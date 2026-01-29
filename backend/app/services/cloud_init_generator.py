@@ -35,10 +35,16 @@ class CloudInitGenerator:
                 "qemu-guest-agent",
             ],
             "runcmd": [
-                # Fix SSH to allow root password login (override cloudimg defaults)
+                # Ensure SSH is configured for password auth and root login
+                "mkdir -p /etc/ssh/sshd_config.d",
                 "echo -e 'PasswordAuthentication yes\\nPermitRootLogin yes' > /etc/ssh/sshd_config.d/70-vpscloud.conf",
-                "systemctl enable ssh",
-                "systemctl restart ssh",
+                # Also modify main config for older systems without sshd_config.d
+                "sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config",
+                "sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config",
+                # Enable and restart SSH (try both ssh and sshd for different distros)
+                "systemctl enable ssh || systemctl enable sshd || true",
+                "systemctl restart ssh || systemctl restart sshd || true",
+                # QEMU Guest Agent
                 "systemctl enable qemu-guest-agent",
                 "systemctl start qemu-guest-agent",
             ],
