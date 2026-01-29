@@ -11,12 +11,26 @@ import {
   DialogContent,
   DialogActions,
   IconButton,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Stepper,
+  Step,
+  StepLabel,
+  StepContent,
+  Chip,
+  Tooltip,
 } from '@mui/material';
 import {
   Fullscreen as FullscreenIcon,
   Close as CloseIcon,
   DesktopWindows as ConsoleIcon,
   Terminal as TerminalIcon,
+  ExpandMore as ExpandMoreIcon,
+  ContentCopy as CopyIcon,
+  CheckCircle as CheckIcon,
+  Apple as AppleIcon,
+  Computer as WindowsIcon,
 } from '@mui/icons-material';
 import apiClient from '../services/api-client';
 
@@ -32,16 +46,27 @@ interface Props {
   vmStatus: string;
   proxmoxNode: string;
   onOpenSSHConsole?: () => void;
+  sshDomain?: string | null;
+  sshUsername?: string | null;
+  sshPassword?: string | null;
 }
 
-export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSHConsole }: Props) {
+export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSHConsole, sshDomain, sshUsername, sshPassword }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [consoleInfo, setConsoleInfo] = useState<ConsoleInfo | null>(null);
   const [connected, setConnected] = useState(false);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [activeStep, setActiveStep] = useState(0);
   const canvasRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<any>(null);
+
+  const handleCopy = async (text: string, label: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopiedText(label);
+    setTimeout(() => setCopiedText(null), 2000);
+  };
 
   const cleanup = useCallback(() => {
     if (rfbRef.current) {
@@ -151,6 +176,12 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSH
     );
   }
 
+  // Code snippets for SSH guide
+  const sshCommand = sshDomain ? `ssh -o ProxyCommand="cloudflared access ssh --hostname %h" ${sshUsername || 'root'}@${sshDomain}` : '';
+  const sshConfigSnippet = sshDomain ? `Host ${sshDomain}
+    ProxyCommand cloudflared access ssh --hostname %h
+    User ${sshUsername || 'root'}` : '';
+
   return (
     <>
       <Paper sx={{ p: 3 }}>
@@ -182,6 +213,197 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSH
           )}
         </Box>
       </Paper>
+
+      {/* SSH Terminal Guide */}
+      {sshDomain && (
+        <Accordion sx={{ mt: 2 }} defaultExpanded={false}>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <TerminalIcon color="primary" />
+              <Typography variant="h6">Hướng dẫn SSH từ Terminal (bên ngoài mạng LAN)</Typography>
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails>
+            <Alert severity="info" sx={{ mb: 3 }}>
+              Sử dụng <strong>Cloudflare Tunnel</strong> để kết nối SSH an toàn từ bất kỳ đâu mà không cần mở port.
+            </Alert>
+
+            {/* SSH Info */}
+            <Paper variant="outlined" sx={{ p: 2, mb: 3, bgcolor: 'action.hover' }}>
+              <Typography variant="subtitle2" gutterBottom>Thông tin kết nối:</Typography>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ minWidth: 100 }}>SSH Domain:</Typography>
+                  <Chip label={sshDomain} size="small" />
+                  <Tooltip title={copiedText === 'domain' ? 'Đã sao chép!' : 'Sao chép'}>
+                    <IconButton size="small" onClick={() => handleCopy(sshDomain, 'domain')}>
+                      {copiedText === 'domain' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ minWidth: 100 }}>Username:</Typography>
+                  <Chip label={sshUsername || 'root'} size="small" />
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ minWidth: 100 }}>Password:</Typography>
+                  <Chip label={sshPassword ? '••••••••' : 'Xem ở tab Thông tin'} size="small" />
+                </Box>
+              </Box>
+            </Paper>
+
+            <Stepper activeStep={activeStep} orientation="vertical">
+              {/* Step 1: Install cloudflared */}
+              <Step>
+                <StepLabel
+                  onClick={() => setActiveStep(0)}
+                  sx={{ cursor: 'pointer' }}
+                >
+                  <Typography variant="subtitle1">Cài đặt Cloudflared CLI</Typography>
+                </StepLabel>
+                <StepContent>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Cài đặt <code>cloudflared</code> trên máy tính của bạn (chỉ cần làm 1 lần).
+                  </Typography>
+
+                  <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+                    <Chip icon={<AppleIcon />} label="macOS" size="small" variant="outlined" />
+                    <Chip icon={<WindowsIcon />} label="Windows" size="small" variant="outlined" />
+                    <Chip label="Linux" size="small" variant="outlined" />
+                  </Box>
+
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.900', mb: 2 }}>
+                    <Typography variant="caption" color="grey.500" display="block" gutterBottom>macOS (Homebrew):</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Typography component="code" sx={{ color: 'success.light', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                        brew install cloudflared
+                      </Typography>
+                      <IconButton size="small" onClick={() => handleCopy('brew install cloudflared', 'brew')}>
+                        {copiedText === 'brew' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" sx={{ color: 'grey.500' }} />}
+                      </IconButton>
+                    </Box>
+                  </Paper>
+
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.900', mb: 2 }}>
+                    <Typography variant="caption" color="grey.500" display="block" gutterBottom>Windows (Winget):</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Typography component="code" sx={{ color: 'success.light', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                        winget install cloudflare.cloudflared
+                      </Typography>
+                      <IconButton size="small" onClick={() => handleCopy('winget install cloudflare.cloudflared', 'winget')}>
+                        {copiedText === 'winget' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" sx={{ color: 'grey.500' }} />}
+                      </IconButton>
+                    </Box>
+                  </Paper>
+
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.900', mb: 2 }}>
+                    <Typography variant="caption" color="grey.500" display="block" gutterBottom>Ubuntu/Debian:</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Typography component="code" sx={{ color: 'success.light', fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>
+                        curl -L https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-archive-keyring.gpg && sudo apt update && sudo apt install cloudflared
+                      </Typography>
+                      <IconButton size="small" onClick={() => handleCopy('curl -L https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-archive-keyring.gpg && sudo apt update && sudo apt install cloudflared', 'apt')}>
+                        {copiedText === 'apt' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" sx={{ color: 'grey.500' }} />}
+                      </IconButton>
+                    </Box>
+                  </Paper>
+
+                  <Button size="small" variant="contained" onClick={() => setActiveStep(1)}>
+                    Tiếp tục
+                  </Button>
+                </StepContent>
+              </Step>
+
+              {/* Step 2: SSH Command */}
+              <Step>
+                <StepLabel
+                  onClick={() => setActiveStep(1)}
+                  sx={{ cursor: 'pointer' }}
+                >
+                  <Typography variant="subtitle1">Kết nối SSH</Typography>
+                </StepLabel>
+                <StepContent>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Chạy lệnh sau trong Terminal để kết nối SSH:
+                  </Typography>
+
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.900', mb: 2 }}>
+                    <Typography variant="caption" color="grey.500" display="block" gutterBottom>Lệnh SSH:</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                      <Typography component="code" sx={{ color: 'success.light', fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>
+                        {sshCommand}
+                      </Typography>
+                      <IconButton size="small" onClick={() => handleCopy(sshCommand, 'ssh')}>
+                        {copiedText === 'ssh' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" sx={{ color: 'grey.500' }} />}
+                      </IconButton>
+                    </Box>
+                  </Paper>
+
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    Khi được hỏi password, nhập mật khẩu SSH (xem ở tab <strong>Thông tin</strong>).
+                  </Alert>
+
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button size="small" onClick={() => setActiveStep(0)}>Quay lại</Button>
+                    <Button size="small" variant="contained" onClick={() => setActiveStep(2)}>Tiếp tục</Button>
+                  </Box>
+                </StepContent>
+              </Step>
+
+              {/* Step 3: SSH Config (Optional) */}
+              <Step>
+                <StepLabel
+                  onClick={() => setActiveStep(2)}
+                  sx={{ cursor: 'pointer' }}
+                  optional={<Typography variant="caption">Tùy chọn</Typography>}
+                >
+                  <Typography variant="subtitle1">Cấu hình SSH Config (tiện lợi hơn)</Typography>
+                </StepLabel>
+                <StepContent>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Thêm vào file <code>~/.ssh/config</code> để kết nối nhanh hơn:
+                  </Typography>
+
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.900', mb: 2 }}>
+                    <Typography variant="caption" color="grey.500" display="block" gutterBottom>~/.ssh/config:</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
+                      <Typography component="pre" sx={{ color: 'success.light', fontFamily: 'monospace', fontSize: '0.85rem', whiteSpace: 'pre-wrap', m: 0 }}>
+                        {sshConfigSnippet}
+                      </Typography>
+                      <IconButton size="small" onClick={() => handleCopy(sshConfigSnippet, 'config')}>
+                        {copiedText === 'config' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" sx={{ color: 'grey.500' }} />}
+                      </IconButton>
+                    </Box>
+                  </Paper>
+
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Sau đó chỉ cần gõ:
+                  </Typography>
+
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.900', mb: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Typography component="code" sx={{ color: 'success.light', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                        ssh {sshDomain}
+                      </Typography>
+                      <IconButton size="small" onClick={() => handleCopy(`ssh ${sshDomain}`, 'simple')}>
+                        {copiedText === 'simple' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" sx={{ color: 'grey.500' }} />}
+                      </IconButton>
+                    </Box>
+                  </Paper>
+
+                  <Alert severity="success" icon={<CheckIcon />}>
+                    Hoàn tất! Bạn đã có thể SSH vào VM từ bất kỳ đâu.
+                  </Alert>
+
+                  <Box sx={{ mt: 2 }}>
+                    <Button size="small" onClick={() => setActiveStep(1)}>Quay lại</Button>
+                  </Box>
+                </StepContent>
+              </Step>
+            </Stepper>
+          </AccordionDetails>
+        </Accordion>
+      )}
 
       <Dialog
         open={open}

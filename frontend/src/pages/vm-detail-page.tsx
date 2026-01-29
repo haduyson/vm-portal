@@ -544,6 +544,9 @@ export default function VMDetailPage() {
           vmStatus={vm.status}
           proxmoxNode={vm.proxmox_node}
           onOpenSSHConsole={() => setSshConsoleOpen(true)}
+          sshDomain={vm.ssh_domain}
+          sshUsername={vm.ssh_username}
+          sshPassword={vm.ssh_password}
         />
       )}
 
