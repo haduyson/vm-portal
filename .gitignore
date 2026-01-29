@@ -33,3 +33,7 @@ Thumbs.db
 # Plans/Reports (internal)
 plans/reports/
 docs/wireframes/*.png
+
+# Generated/temp files
+frontend/plans/
+nginx/html/
