@@ -160,9 +160,19 @@ async def admin_delete_vm(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy VM")
 
     try:
-        await log_audit(session, _admin.id, "delete_vm", "vm", vm.id, f"Deleted VM: {vm.name} (VMID: {vm.vmid})")
         proxmox = await create_proxmox_service_for_vm(vm, session)
+        # Stop VM first if running (wait up to 30s)
+        try:
+            await proxmox.stop_vm(vm.vmid)
+            for _ in range(6):
+                await asyncio.sleep(5)
+                status = await proxmox.get_vm_status(vm.vmid)
+                if status.get("status") == "stopped":
+                    break
+        except Exception:
+            pass
         await proxmox.delete_vm(vm.vmid)
+        await log_audit(session, _admin.id, "delete_vm", "vm", vm.id, f"Deleted VM: {vm.name} (VMID: {vm.vmid})")
         await session.delete(vm)
         await session.commit()
     except Exception as e:
