@@ -655,38 +655,46 @@ export default function AdminProxmoxServersPage() {
               helperText="VM ID của template cloud-init (VD: 9000). Để trống nếu không dùng cloud-init."
             />
 
-            <Typography variant="subtitle2" sx={{ mt: 2 }}>
-              Giới hạn dự trữ tài nguyên (%)
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Phần trăm tài nguyên dự trữ cho hệ thống. Để trống = không giới hạn.
-            </Typography>
-            <Stack direction="row" spacing={2}>
-              <TextField
-                label="CPU Reserve %"
-                type="number"
-                value={reserveCpuPercent}
-                onChange={(e) => setReserveCpuPercent(e.target.value)}
-                inputProps={{ min: 0, max: 50, step: 1 }}
-                size="small"
-              />
-              <TextField
-                label="RAM Reserve %"
-                type="number"
-                value={reserveRamPercent}
-                onChange={(e) => setReserveRamPercent(e.target.value)}
-                inputProps={{ min: 0, max: 50, step: 1 }}
-                size="small"
-              />
-              <TextField
-                label="Disk Reserve %"
-                type="number"
-                value={reserveDiskPercent}
-                onChange={(e) => setReserveDiskPercent(e.target.value)}
-                inputProps={{ min: 0, max: 50, step: 1 }}
-                size="small"
-              />
-            </Stack>
+            <Box sx={{ mt: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Dự trữ tài nguyên hệ thống (%)
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                Để trống = không giới hạn (0-50%)
+              </Typography>
+              <Stack spacing={2}>
+                <TextField
+                  label="CPU dự trữ"
+                  type="number"
+                  value={reserveCpuPercent}
+                  onChange={(e) => setReserveCpuPercent(e.target.value)}
+                  inputProps={{ min: 0, max: 50, step: 1 }}
+                  size="small"
+                  fullWidth
+                  InputProps={{ endAdornment: <Typography variant="body2">%</Typography> }}
+                />
+                <TextField
+                  label="RAM dự trữ"
+                  type="number"
+                  value={reserveRamPercent}
+                  onChange={(e) => setReserveRamPercent(e.target.value)}
+                  inputProps={{ min: 0, max: 50, step: 1 }}
+                  size="small"
+                  fullWidth
+                  InputProps={{ endAdornment: <Typography variant="body2">%</Typography> }}
+                />
+                <TextField
+                  label="Disk dự trữ"
+                  type="number"
+                  value={reserveDiskPercent}
+                  onChange={(e) => setReserveDiskPercent(e.target.value)}
+                  inputProps={{ min: 0, max: 50, step: 1 }}
+                  size="small"
+                  fullWidth
+                  InputProps={{ endAdornment: <Typography variant="body2">%</Typography> }}
+                />
+              </Stack>
+            </Box>
           </Stack>
         </DialogContent>
         <DialogActions>
