@@ -58,18 +58,24 @@ async def get_telegram_config(session: AsyncSession) -> dict:
 async def get_proxmox_config(session: AsyncSession) -> dict:
     """
     Get Proxmox configuration from database, with fallback to environment variables.
-    Returns dict with host, token_value, and source indicator.
+    Returns dict with host, token_name, token_value, node, and source indicator.
     """
     db_host = await get_setting(session, "proxmox_host")
+    db_token_name = await get_setting(session, "proxmox_token_name")
     db_token_value = await get_setting(session, "proxmox_token_value")
+    db_node = await get_setting(session, "proxmox_node")
 
     host = db_host if db_host else settings.PROXMOX_HOST
+    token_name = db_token_name if db_token_name else settings.PROXMOX_TOKEN_NAME
     token_value = db_token_value if db_token_value else settings.PROXMOX_TOKEN_VALUE
+    node = db_node if db_node else settings.PROXMOX_NODE
 
     source = "database" if (db_host or db_token_value) else "environment"
 
     return {
         "host": host,
+        "token_name": token_name,
         "token_value": token_value,
+        "node": node,
         "source": source,
     }

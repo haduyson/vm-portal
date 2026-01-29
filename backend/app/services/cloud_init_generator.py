@@ -37,7 +37,8 @@ class CloudInitGenerator:
             "runcmd": [
                 # Ensure SSH is configured for password auth and root login
                 "mkdir -p /etc/ssh/sshd_config.d",
-                "echo -e 'PasswordAuthentication yes\\nPermitRootLogin yes' > /etc/ssh/sshd_config.d/70-vpscloud.conf",
+                "echo 'PasswordAuthentication yes' > /etc/ssh/sshd_config.d/70-vpscloud.conf",
+                "echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config.d/70-vpscloud.conf",
                 # Also modify main config for older systems without sshd_config.d
                 "sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config",
                 "sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config",

@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.config import settings
 from app.models.virtual_machine_model import VirtualMachine
-from app.services.proxmox_client import ProxmoxService, create_proxmox_service
+from app.services.proxmox_client import ProxmoxService, create_proxmox_service, upload_cloud_init_to_proxmox
 from app.services.cloud_init_generator import CloudInitGenerator
 from app.services.telegram_notifier import TelegramNotifier
 
@@ -49,10 +49,29 @@ class VMProvisioningService:
                 # Generate SSH credentials
                 ssh_username, ssh_password = self.cloud_init.generate_credentials()
 
-                # Generate and save custom cloud-init user-data (includes qemu-guest-agent)
+                # Generate cloud-init user-data (includes qemu-guest-agent)
                 user_data = self.cloud_init.generate_user_data(vm.name, ssh_username, ssh_password)
-                userdata_file = self.cloud_init.save_to_snippets(vm.vmid, user_data)
-                print(f"Cloud-init saved to snippets: {userdata_file}")
+
+                # Get Proxmox server SSH credentials for uploading cloud-init
+                from app.models.proxmox_server_model import ProxmoxServer
+                server_result = await session.execute(
+                    select(ProxmoxServer).where(ProxmoxServer.id == vm.proxmox_server_id)
+                )
+                proxmox_server = server_result.scalar_one_or_none()
+
+                # Upload cloud-init to Proxmox server via SSH
+                cicustom_ref = None
+                if proxmox_server and proxmox_server.password:
+                    try:
+                        cicustom_ref = await upload_cloud_init_to_proxmox(
+                            host=proxmox_server.host,
+                            password=proxmox_server.password,
+                            vmid=vm.vmid,
+                            content=user_data,
+                        )
+                        print(f"Cloud-init uploaded to Proxmox: {cicustom_ref}")
+                    except Exception as ssh_err:
+                        print(f"Warning: Failed to upload cloud-init via SSH: {ssh_err}")
 
                 # Step 1: Clone template
                 upid = await self.proxmox.clone_template(
@@ -75,6 +94,7 @@ class VMProvisioningService:
                     memory=vm.memory_mb,
                     net0="virtio,bridge=vmbr0",  # Enable network adapter
                     ide2=f"{vm.storage}:cloudinit",  # Cloud-init drive
+                    ipconfig0="ip=dhcp",  # DHCP for cloud-init network config
                     vga="std",  # Override serial console from template
                 )
 
@@ -90,11 +110,18 @@ class VMProvisioningService:
                         else:
                             raise
 
-                # Step 5: Configure cloud-init with basic credentials (template should have SSH)
-                # Note: cicustom requires file on Proxmox server, use ciuser/cipassword instead
-                await self.proxmox.configure_cloud_init_user(
-                    vm.vmid, ssh_username, ssh_password
-                )
+                # Step 5: Configure cloud-init
+                if cicustom_ref:
+                    # Use custom cloud-init with qemu-guest-agent installation
+                    await self.proxmox.set_vm_config(
+                        vm.vmid,
+                        cicustom=f"user={cicustom_ref}",
+                    )
+                else:
+                    # Fallback: basic credentials only (no qemu-guest-agent)
+                    await self.proxmox.configure_cloud_init_user(
+                        vm.vmid, ssh_username, ssh_password
+                    )
 
                 # Step 6: Start VM
                 await self.proxmox.start_vm(vm.vmid)

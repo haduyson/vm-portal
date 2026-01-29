@@ -498,11 +498,51 @@ class ProxmoxService:
         return await asyncio.to_thread(_get_isos)
 
 
+async def upload_cloud_init_to_proxmox(
+    host: str,
+    password: str,
+    vmid: int,
+    content: str,
+    ssh_user: str = "root",
+    snippets_path: str = "/var/lib/vz/snippets",
+) -> str:
+    """Upload cloud-init user-data to Proxmox server via SSH.
+    Returns the snippet reference for cicustom (e.g., local:snippets/123-cloud-init.yml)
+    """
+    import paramiko
+
+    def _upload():
+        filename = f"{vmid}-cloud-init.yml"
+        remote_path = f"{snippets_path}/{filename}"
+
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            ssh.connect(host, username=ssh_user, password=password, timeout=30)
+            # Ensure snippets directory exists
+            ssh.exec_command(f"mkdir -p {snippets_path}")
+            # Write file via SFTP
+            sftp = ssh.open_sftp()
+            with sftp.file(remote_path, "w") as f:
+                f.write(content)
+            sftp.close()
+            return f"local:snippets/{filename}"
+        finally:
+            ssh.close()
+
+    return await asyncio.to_thread(_upload)
+
+
 async def create_proxmox_service(session: AsyncSession) -> ProxmoxService:
     """Factory: create ProxmoxService with DB config (fallback to env)."""
     from app.services.system_settings_service import get_proxmox_config
     config = await get_proxmox_config(session)
-    return ProxmoxService(host=config["host"], token_value=config["token_value"])
+    return ProxmoxService(
+        host=config["host"],
+        token_name=config["token_name"],
+        token_value=config["token_value"],
+        node=config["node"],
+    )
 
 
 async def create_proxmox_service_for_server(server_id: int, session: AsyncSession) -> ProxmoxService:
