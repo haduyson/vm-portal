@@ -265,9 +265,6 @@ export default function VMCreatePage() {
     }
   };
 
-  const cpuAllocPercent = (s: ServerResource) =>
-    s.cpu_total_cores > 0 ? Math.round((s.cpu_allocated_cores / s.cpu_total_cores) * 100) : 0;
-
   const memAllocPercent = (s: ServerResource) =>
     s.memory_total_mb > 0 ? Math.round((s.memory_allocated_mb / s.memory_total_mb) * 100) : 0;
 
@@ -341,21 +338,7 @@ export default function VMCreatePage() {
                         <Typography variant="subtitle1" fontWeight={600}>
                           {server.name}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {server.cpu_model} | {server.cpu_sockets} Socket × {server.cpu_cores_per_socket} Cores ({server.cpu_total_cores} Threads)
-                        </Typography>
                         <Stack spacing={0.5} sx={{ mt: 1 }}>
-                          <Box>
-                            <Typography variant="body2" color="text.secondary">
-                              CPU: {server.cpu_allocated_cores} / {server.cpu_total_cores} cores đã cấp phát ({cpuAllocPercent(server)}%) — Sử dụng: {server.cpu_percent}%
-                            </Typography>
-                            <LinearProgress
-                              variant="determinate"
-                              value={Math.min(cpuAllocPercent(server), 100)}
-                              color={cpuAllocPercent(server) > 80 ? 'error' : cpuAllocPercent(server) > 60 ? 'warning' : 'primary'}
-                              sx={{ height: 6, borderRadius: 3 }}
-                            />
-                          </Box>
                           <Box>
                             <Typography variant="body2" color="text.secondary">
                               RAM: {Math.round(server.memory_allocated_mb / 1024)} / {Math.round(server.memory_total_mb / 1024)} GB đã cấp phát ({memAllocPercent(server)}%)

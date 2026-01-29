@@ -62,11 +62,18 @@ interface ProxmoxStorageItem {
 interface ResourceData {
   id: number;
   name: string;
+  cpu_model: string;
+  cpu_sockets: number;
+  cpu_cores_per_socket: number;
+  cpu_total_cores: number;
   cpu_percent: number;
+  cpu_allocated_cores: number;
   memory_used_mb: number;
   memory_total_mb: number;
+  memory_allocated_mb: number;
   disk_used_gb: number;
   disk_total_gb: number;
+  disk_allocated_gb: number;
 }
 
 export default function AdminProxmoxServersPage() {
@@ -663,11 +670,21 @@ export default function AdminProxmoxServersPage() {
                 </Typography>
               </Box>
 
-              {/* CPU */}
+              {/* CPU Info */}
+              <Box sx={{ bgcolor: 'action.hover', p: 1.5, borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  {resourceData.cpu_model}
+                </Typography>
+                <Typography variant="body2">
+                  {resourceData.cpu_sockets} Socket × {resourceData.cpu_cores_per_socket} Cores = <strong>{resourceData.cpu_total_cores} Physical Cores</strong>
+                </Typography>
+              </Box>
+
+              {/* CPU Usage */}
               <Box>
                 <Box display="flex" justifyContent="space-between" mb={1}>
                   <Typography variant="body2" fontWeight="medium">
-                    CPU
+                    CPU Usage (thực tế)
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {resourceData.cpu_percent.toFixed(1)}%
@@ -678,6 +695,34 @@ export default function AdminProxmoxServersPage() {
                   value={resourceData.cpu_percent}
                   sx={{ height: 8, borderRadius: 1 }}
                 />
+              </Box>
+
+              {/* vCPU Allocation */}
+              <Box>
+                <Box display="flex" justifyContent="space-between" mb={1}>
+                  <Typography variant="body2" fontWeight="medium">
+                    vCPU đã cấp phát
+                  </Typography>
+                  <Typography variant="body2" color={
+                    resourceData.cpu_allocated_cores > resourceData.cpu_total_cores * 3 ? 'error.main' :
+                    resourceData.cpu_allocated_cores > resourceData.cpu_total_cores * 2 ? 'warning.main' : 'text.secondary'
+                  }>
+                    {resourceData.cpu_allocated_cores} / {resourceData.cpu_total_cores * 3} vCPU (khuyến nghị tối đa 3:1)
+                  </Typography>
+                </Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={Math.min((resourceData.cpu_allocated_cores / (resourceData.cpu_total_cores * 3)) * 100, 100)}
+                  sx={{ height: 8, borderRadius: 1 }}
+                  color={
+                    resourceData.cpu_allocated_cores > resourceData.cpu_total_cores * 3 ? 'error' :
+                    resourceData.cpu_allocated_cores > resourceData.cpu_total_cores * 2 ? 'warning' : 'primary'
+                  }
+                />
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                  Tỷ lệ: {(resourceData.cpu_allocated_cores / resourceData.cpu_total_cores).toFixed(1)}:1 |
+                  Còn có thể cấp: {Math.max(0, resourceData.cpu_total_cores * 3 - resourceData.cpu_allocated_cores)} vCPU
+                </Typography>
               </Box>
 
               {/* Memory */}
