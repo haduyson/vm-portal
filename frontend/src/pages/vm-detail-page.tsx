@@ -727,8 +727,10 @@ export default function VMDetailPage() {
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteDialog(false)}>Hủy</Button>
-          <Button onClick={handleDeleteVM} color="error" variant="contained">Xóa</Button>
+          <Button onClick={() => setDeleteDialog(false)} disabled={actionLoading}>Hủy</Button>
+          <Button onClick={handleDeleteVM} color="error" variant="contained" disabled={actionLoading}>
+            {actionLoading ? 'Đang xóa...' : 'Xóa'}
+          </Button>
         </DialogActions>
       </Dialog>
 

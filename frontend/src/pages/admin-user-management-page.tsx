@@ -126,21 +126,19 @@ export default function AdminUserManagementPage() {
     fetchUsers();
   }, []);
 
-  const handleToggleAdmin = async (user: AdminUser) => {
+  const handleToggleSuspend = async (user: AdminUser) => {
     try {
       setError('');
       await apiClient.patch(`/admin/users/${user.id}`, {
-        is_admin: !user.is_admin,
+        is_suspended: !user.is_suspended,
       });
       setUsers((prev) =>
         prev.map((u) =>
-          u.id === user.id ? { ...u, is_admin: !u.is_admin } : u
+          u.id === user.id ? { ...u, is_suspended: !u.is_suspended } : u
         )
       );
     } catch (err: any) {
-      setError(
-        err.response?.data?.detail || 'Không thể cập nhật quyền quản trị'
-      );
+      setError(err.response?.data?.detail || 'Không thể cập nhật trạng thái tài khoản');
     }
   };
 
@@ -362,10 +360,11 @@ export default function AdminUserManagementPage() {
                   </TableCell>
                   <TableCell>
                     <Switch
-                      checked={user.is_admin}
-                      onChange={() => handleToggleAdmin(user)}
+                      checked={!user.is_suspended}
+                      onChange={() => handleToggleSuspend(user)}
                       size="small"
-                      title="Quyền Admin"
+                      color={user.is_suspended ? 'error' : 'success'}
+                      title={user.is_suspended ? 'Tài khoản đang bị khóa' : 'Tài khoản đang hoạt động'}
                     />
                   </TableCell>
                   <TableCell>{user.telegram_chat_id || '-'}</TableCell>
