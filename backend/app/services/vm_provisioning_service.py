@@ -51,7 +51,7 @@ class VMProvisioningService:
                 ssh_username, ssh_password = self.cloud_init.generate_credentials()
 
                 # Generate cloud-init user-data (includes qemu-guest-agent)
-                user_data = self.cloud_init.generate_user_data(vm.name, ssh_username, ssh_password)
+                user_data = await self.cloud_init.generate_user_data(vm.name, ssh_username, ssh_password, session=session)
 
                 # Get Proxmox server SSH credentials for uploading cloud-init
                 from app.models.proxmox_server_model import ProxmoxServer
@@ -184,8 +184,8 @@ class VMProvisioningService:
                 ssh_username, ssh_password = self.cloud_init.generate_credentials()
 
                 # Generate cloud-init configuration
-                user_data = self.cloud_init.generate_user_data(
-                    vm.name, ssh_username, ssh_password
+                user_data = await self.cloud_init.generate_user_data(
+                    vm.name, ssh_username, ssh_password, session=session
                 )
 
                 # Save to snippets

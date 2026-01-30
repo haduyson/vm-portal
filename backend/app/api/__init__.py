@@ -29,6 +29,9 @@ admin_cloudflare_setup_router = _admin_cf_setup_mod.router
 _ssh_console_ws_mod = importlib.import_module("app.api.ssh-console-websocket-endpoint")
 ssh_console_websocket_router = _ssh_console_ws_mod.router
 
+_admin_vm_landing_config_mod = importlib.import_module("app.api.admin-vm-landing-config-endpoints")
+admin_vm_landing_config_router = _admin_vm_landing_config_mod.router
+
 __all__ = [
     "auth_router",
     "vm_router",
@@ -47,4 +50,5 @@ __all__ = [
     "admin_cloudflare_domain_router",
     "admin_cloudflare_setup_router",
     "ssh_console_websocket_router",
+    "admin_vm_landing_config_router",
 ]

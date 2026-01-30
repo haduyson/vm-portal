@@ -34,6 +34,7 @@ import {
   Settings as SettingsIcon,
   Storage as StorageIcon,
   Cloud as CloudIcon,
+  Web as WebIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../hooks/use-auth-context';
 import { useThemeContext } from '../app';
@@ -80,6 +81,7 @@ export default function AppLayout() {
     { text: 'Nhật ký hoạt động', icon: <HistoryIcon />, path: '/admin/audit-logs' },
     { text: 'Server Proxmox', icon: <StorageIcon />, path: '/admin/proxmox-servers' },
     { text: 'Cloudflare Domains', icon: <CloudIcon />, path: '/admin/cloudflare-domains' },
+    { text: 'Landing Page VM', icon: <WebIcon />, path: '/admin/vm-landing-config' },
     { text: 'Cài đặt hệ thống', icon: <SettingsIcon />, path: '/admin/settings' },
   ];
 

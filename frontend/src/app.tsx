@@ -22,6 +22,7 @@ import AdminProxmoxServersPage from './pages/admin-proxmox-servers-page';
 import AdminCloudflareDomainsPage from './pages/admin-cloudflare-domains-page';
 import AdminCloudflareSetupWizardPage from './pages/admin-cloudflare-setup-wizard-page';
 import TwoFactorSetupPage from './pages/two-factor-setup-page';
+import AdminVmLandingConfigPage from './pages/admin-vm-landing-config-page';
 
 interface ThemeContextType {
   mode: PaletteMode;
@@ -133,6 +134,7 @@ export default function App() {
                   <Route path="/admin/proxmox-servers" element={<AdminProxmoxServersPage />} />
                   <Route path="/admin/cloudflare-domains" element={<AdminCloudflareDomainsPage />} />
                   <Route path="/admin/cloudflare-setup" element={<AdminCloudflareSetupWizardPage />} />
+                  <Route path="/admin/vm-landing-config" element={<AdminVmLandingConfigPage />} />
                 </Route>
               </Route>
             </Route>
