@@ -124,12 +124,19 @@ export default function VMSSHConsoleModal({
       return;
     }
 
+    // Get JWT token from localStorage
+    const accessToken = localStorage.getItem('access_token');
+    if (!accessToken) {
+      setError('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+      return;
+    }
+
     setIsConnecting(true);
     setError(null);
 
-    // Kết nối WebSocket
+    // Kết nối WebSocket với JWT token
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/api/ws/vm/${vmId}/console`;
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/vm/${vmId}/console?token=${encodeURIComponent(accessToken)}`;
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -177,9 +184,13 @@ export default function VMSSHConsoleModal({
       setIsConnected(false);
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       setIsConnecting(false);
       setIsConnected(false);
+      // Code 1008 = Policy Violation (JWT auth failed)
+      if (event.code === 1008) {
+        setError('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+      }
       if (xtermRef.current) {
         xtermRef.current.write('\r\n\n[Đã ngắt kết nối]\r\n');
       }

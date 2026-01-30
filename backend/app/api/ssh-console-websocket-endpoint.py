@@ -1,24 +1,43 @@
 import asyncio
 import json
 import paramiko
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query, WebSocketException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from jose import jwt, JWTError
 from app.database import get_session
 from app.models.virtual_machine_model import VirtualMachine
-# Authentication sẽ được thực hiện qua JWT token trong query params nếu cần
+from app.models.user_model import User
+from app.config import settings
 from sqlalchemy import select
 
 router = APIRouter(tags=["ssh-websocket"])
+
+
+async def verify_websocket_token(token: str, session: AsyncSession) -> User:
+    """Verify JWT token from WebSocket query params and return user."""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        username: str = payload.get("sub")
+        token_type: str = payload.get("type", "access")
+        if username is None or token_type == "partial_2fa":
+            return None
+    except JWTError:
+        return None
+
+    result = await session.execute(select(User).where(User.username == username))
+    return result.scalar_one_or_none()
 
 
 @router.websocket("/ws/vm/{vm_id}/console")
 async def ssh_console_websocket(
     websocket: WebSocket,
     vm_id: int,
+    token: str = Query(..., description="JWT access token"),
     session: AsyncSession = Depends(get_session),
 ):
     """
     WebSocket endpoint for SSH console.
+    Requires JWT token in query params: ?token=xxx
 
     Protocol:
     - Client sends: {"type": "auth", "username": "root", "password": "xxx"}
@@ -27,6 +46,12 @@ async def ssh_console_websocket(
     - Server sends: {"type": "output", "data": "response"}
     - Client sends: {"type": "resize", "cols": 80, "rows": 24}
     """
+    # Verify JWT token BEFORE accepting WebSocket
+    current_user = await verify_websocket_token(token, session)
+    if not current_user:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     await websocket.accept()
 
     ssh_client = None
@@ -43,6 +68,15 @@ async def ssh_console_websocket(
             await websocket.send_text(json.dumps({
                 "type": "error",
                 "message": "VM không tồn tại"
+            }))
+            await websocket.close()
+            return
+
+        # SECURITY: Verify VM ownership (user must own VM or be admin)
+        if vm.user_id != current_user.id and not current_user.is_admin:
+            await websocket.send_text(json.dumps({
+                "type": "error",
+                "message": "Bạn không có quyền truy cập VM này"
             }))
             await websocket.close()
             return
