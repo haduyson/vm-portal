@@ -398,6 +398,7 @@ class VMProvisioningService:
                     vm.ssh_username or "unknown",
                     vm.ssh_password or "unknown",
                     vm.ssh_domain,
+                    vm.web_domain,
                 )
 
                 print(f"VM {vmid} is ready with IP {ip_address}")

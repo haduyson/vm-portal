@@ -62,6 +62,7 @@ class TelegramNotifier:
         username: str,
         password: str,
         ssh_domain: str,
+        web_domain: Optional[str] = None,
     ) -> bool:
         """Send VM ready notification."""
         target_chat_id = chat_id or self.default_chat_id
@@ -70,11 +71,13 @@ class TelegramNotifier:
             print("Warning: No Telegram chat ID configured")
             return False
 
+        web_domain_line = f"\n*Web Domain:* `{web_domain}`" if web_domain else ""
+
         message = f"""🖥 *VM Đã Sẵn Sàng!*
 
 *Tên VM:* `{vm_name}`
 *IP Nội Bộ:* `{ip}`
-*SSH Domain:* `{ssh_domain}`
+*SSH Domain:* `{ssh_domain}`{web_domain_line}
 *Username:* `{username}`
 *Password:* `{password}`
 

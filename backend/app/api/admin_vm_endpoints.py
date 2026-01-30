@@ -33,10 +33,10 @@ async def list_all_vms(
             id=vm.id, user_id=vm.user_id, vmid=vm.vmid, name=vm.name,
             cores=vm.cores, memory_mb=vm.memory_mb, disk_gb=vm.disk_gb,
             os_type=vm.os_type, status=vm.status, ip_address=vm.ip_address,
-            ssh_domain=vm.ssh_domain, ssh_username=vm.ssh_username,
-            ssh_password=vm.ssh_password, proxmox_node=vm.proxmox_node,
-            storage=vm.storage, created_at=vm.created_at,
-            updated_at=vm.updated_at, username=username,
+            ssh_domain=vm.ssh_domain, web_domain=vm.web_domain,
+            ssh_username=vm.ssh_username, ssh_password=vm.ssh_password,
+            proxmox_node=vm.proxmox_node, storage=vm.storage,
+            created_at=vm.created_at, updated_at=vm.updated_at, username=username,
         )
         for vm, username in rows
     ]
@@ -96,10 +96,10 @@ async def admin_start_vm(
             id=vm.id, user_id=vm.user_id, vmid=vm.vmid, name=vm.name,
             cores=vm.cores, memory_mb=vm.memory_mb, disk_gb=vm.disk_gb,
             os_type=vm.os_type, status=vm.status, ip_address=vm.ip_address,
-            ssh_domain=vm.ssh_domain, ssh_username=vm.ssh_username,
-            ssh_password=vm.ssh_password, proxmox_node=vm.proxmox_node,
-            storage=vm.storage, created_at=vm.created_at,
-            updated_at=vm.updated_at, username=username,
+            ssh_domain=vm.ssh_domain, web_domain=vm.web_domain,
+            ssh_username=vm.ssh_username, ssh_password=vm.ssh_password,
+            proxmox_node=vm.proxmox_node, storage=vm.storage,
+            created_at=vm.created_at, updated_at=vm.updated_at, username=username,
         )
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Lỗi khi khởi động VM: {str(e)}")
@@ -138,10 +138,10 @@ async def admin_stop_vm(
             id=vm.id, user_id=vm.user_id, vmid=vm.vmid, name=vm.name,
             cores=vm.cores, memory_mb=vm.memory_mb, disk_gb=vm.disk_gb,
             os_type=vm.os_type, status=vm.status, ip_address=vm.ip_address,
-            ssh_domain=vm.ssh_domain, ssh_username=vm.ssh_username,
-            ssh_password=vm.ssh_password, proxmox_node=vm.proxmox_node,
-            storage=vm.storage, created_at=vm.created_at,
-            updated_at=vm.updated_at, username=username,
+            ssh_domain=vm.ssh_domain, web_domain=vm.web_domain,
+            ssh_username=vm.ssh_username, ssh_password=vm.ssh_password,
+            proxmox_node=vm.proxmox_node, storage=vm.storage,
+            created_at=vm.created_at, updated_at=vm.updated_at, username=username,
         )
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Lỗi khi dừng VM: {str(e)}")
