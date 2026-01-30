@@ -124,8 +124,8 @@ export default function VMSSHConsoleModal({
       return;
     }
 
-    // Get JWT token from localStorage
-    const accessToken = localStorage.getItem('access_token');
+    // Get JWT token from localStorage (stored as 'token' by auth-service)
+    const accessToken = localStorage.getItem('token');
     if (!accessToken) {
       setError('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
       return;
