@@ -7,6 +7,7 @@ from app.models.virtual_machine_model import VirtualMachine
 from app.services.proxmox_client import ProxmoxService, create_proxmox_service, upload_cloud_init_to_proxmox
 from app.services.cloud_init_generator import CloudInitGenerator
 from app.services.telegram_notifier import TelegramNotifier
+from app.core.credential_encryption import decrypt_credential
 
 
 class VMProvisioningService:
@@ -63,9 +64,11 @@ class VMProvisioningService:
                 cicustom_ref = None
                 if proxmox_server and proxmox_server.password:
                     try:
+                        # Decrypt password from database
+                        decrypted_password = decrypt_credential(proxmox_server.password)
                         cicustom_ref = await upload_cloud_init_to_proxmox(
                             host=proxmox_server.host,
-                            password=proxmox_server.password,
+                            password=decrypted_password,
                             vmid=vm.vmid,
                             content=user_data,
                         )

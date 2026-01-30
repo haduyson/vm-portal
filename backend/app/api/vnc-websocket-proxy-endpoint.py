@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_session
 from app.models.virtual_machine_model import VirtualMachine
 from app.models.proxmox_server_model import ProxmoxServer
+from app.core.credential_encryption import decrypt_credential
 from app.config import settings
 from sqlalchemy import select
 import websockets
@@ -95,7 +96,8 @@ async def vnc_websocket_proxy(
         proxmox_host = server.host if server else settings.PROXMOX_HOST
         proxmox_port = server.port if server else 8006
         proxmox_user = server.user if server else settings.PROXMOX_USER
-        proxmox_password = server.password if server else settings.PROXMOX_PASSWORD
+        # Decrypt password from database (handles both encrypted and legacy plaintext)
+        proxmox_password = decrypt_credential(server.password) if server and server.password else settings.PROXMOX_PASSWORD
         proxmox_node = server.node if server else settings.PROXMOX_NODE
     else:
         proxmox_host = settings.PROXMOX_HOST

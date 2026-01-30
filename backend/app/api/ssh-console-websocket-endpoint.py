@@ -140,6 +140,8 @@ async def ssh_console_websocket(
             return
 
         # Tạo SSH connection
+        # Note: AutoAddPolicy accepts any host key - acceptable for internal trusted networks
+        # For production with untrusted networks, implement known_hosts verification
         ssh_client = paramiko.SSHClient()
         ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 

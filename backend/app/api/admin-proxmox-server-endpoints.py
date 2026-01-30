@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_admin_user
+from app.core.credential_encryption import encrypt_credential
 from app.database import get_session
 from app.models.user_model import User
 from app.models.proxmox_server_model import ProxmoxServer
@@ -105,6 +106,9 @@ async def create_proxmox_server(
             detail=f"Lỗi kết nối Proxmox: {str(e)}",
         )
 
+    # Encrypt sensitive credentials before storing
+    encrypted_password = encrypt_credential(data.password) if data.password else None
+
     server = ProxmoxServer(
         name=data.name,
         host=data.host,
@@ -112,7 +116,7 @@ async def create_proxmox_server(
         user=data.user,
         token_name=data.token_name,
         token_value=data.token_value,
-        password=data.password,
+        password=encrypted_password,
         node=node_name,
         excluded_storages=",".join(data.excluded_storages) if data.excluded_storages else "",
         cloud_init_template_vmid=data.cloud_init_template_vmid,
@@ -182,6 +186,10 @@ async def update_proxmox_server(
     # Convert excluded_storages list to comma-separated string for DB
     if "excluded_storages" in update_data:
         update_data["excluded_storages"] = ",".join(update_data["excluded_storages"] or [])
+
+    # Encrypt password if being updated
+    if "password" in update_data and update_data["password"]:
+        update_data["password"] = encrypt_credential(update_data["password"])
 
     for key, value in update_data.items():
         setattr(server, key, value)
