@@ -31,6 +31,7 @@ import {
   Collapse,
   Grid,
   Chip,
+  CircularProgress,
 } from '@mui/material';
 import {
   PlayArrow as PlayArrowIcon,
@@ -43,12 +44,14 @@ import {
   Language as LanguageIcon,
   Computer as ComputerIcon,
   Storage as StorageIcon,
+  SwapHoriz as TransferIcon,
 } from '@mui/icons-material';
 import apiClient from '../services/api-client';
 import VMStatusChip from '../components/vm-status-chip';
 
 interface AdminVM {
   id: number;
+  user_id: number;
   vmid: number;
   name: string;
   username: string;
@@ -59,12 +62,18 @@ interface AdminVM {
   os_type: string;
   ip_address: string | null;
   ssh_domain: string | null;
+  web_domain: string | null;
   ssh_username: string | null;
   ssh_password: string | null;
   proxmox_node: string;
   storage: string;
   created_at: string;
   updated_at: string;
+}
+
+interface AdminUser {
+  id: number;
+  username: string;
 }
 
 interface AdminStats {
@@ -81,6 +90,9 @@ export default function AdminVmOverviewPage() {
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; vmId: number | null; vmName: string }>({ open: false, vmId: null, vmName: '' });
+  const [transferDialog, setTransferDialog] = useState<{ open: boolean; vm: AdminVM | null }>({ open: false, vm: null });
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<number | ''>('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -112,13 +124,15 @@ export default function AdminVmOverviewPage() {
 
   const fetchData = async () => {
     try {
-      const [vmsRes, statsRes] = await Promise.all([
+      const [vmsRes, statsRes, usersRes] = await Promise.all([
         apiClient.get('/admin/vms'),
         apiClient.get('/admin/stats'),
+        apiClient.get('/admin/users'),
       ]);
       setVms(vmsRes.data);
       vmsRef.current = vmsRes.data;
       setStats(statsRes.data);
+      setUsers(usersRes.data.map((u: any) => ({ id: u.id, username: u.username })));
       setError('');
     } catch {
       setError('Không thể tải dữ liệu');
@@ -206,6 +220,23 @@ export default function AdminVmOverviewPage() {
       await apiClient.delete(`/admin/vms/${deleteDialog.vmId}`);
       setSnackbar({ open: true, message: 'VM đã được xóa thành công', severity: 'success' });
       setDeleteDialog({ open: false, vmId: null, vmName: '' });
+      await fetchData();
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.detail || 'Có lỗi xảy ra', severity: 'error' });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleTransferVM = async () => {
+    if (!transferDialog.vm || !selectedUserId) return;
+    setActionLoading(transferDialog.vm.id);
+    try {
+      await apiClient.post(`/admin/vms/${transferDialog.vm.id}/transfer`, { new_user_id: selectedUserId });
+      const newOwner = users.find(u => u.id === selectedUserId);
+      setSnackbar({ open: true, message: `VM đã chuyển cho ${newOwner?.username || 'người dùng mới'}`, severity: 'success' });
+      setTransferDialog({ open: false, vm: null });
+      setSelectedUserId('');
       await fetchData();
     } catch (error: any) {
       setSnackbar({ open: true, message: error.response?.data?.detail || 'Có lỗi xảy ra', severity: 'error' });
@@ -397,6 +428,18 @@ export default function AdminVmOverviewPage() {
                           </IconButton>
                         </span>
                       </Tooltip>
+                      <Tooltip title="Chuyển chủ sở hữu">
+                        <span>
+                          <IconButton
+                            color="primary"
+                            size="small"
+                            disabled={actionLoading === vm.id}
+                            onClick={() => { setTransferDialog({ open: true, vm }); setSelectedUserId(''); }}
+                          >
+                            <TransferIcon />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
                     </Box>
                   </TableCell>
                 </TableRow>
@@ -405,34 +448,38 @@ export default function AdminVmOverviewPage() {
                     <Collapse in={expandedRows.has(vm.id)} timeout="auto" unmountOnExit>
                       <Box sx={{ py: 2, px: 3 }}>
                         <Grid container spacing={3}>
-                          {/* SSH Domain */}
+                          {/* Domains */}
                           <Grid item xs={12} md={4}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                               <LanguageIcon fontSize="small" color="primary" />
                               <Typography variant="subtitle2" color="text.secondary">
-                                SSH Domain
+                                Domains
                               </Typography>
                             </Box>
-                            {vm.ssh_domain ? (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Chip
-                                  label={vm.ssh_domain}
-                                  size="small"
-                                  color="primary"
-                                  variant="outlined"
-                                />
-                                <Tooltip title="Sao chép">
-                                  <IconButton
-                                    size="small"
-                                    onClick={(e) => { e.stopPropagation(); copyToClipboard(vm.ssh_domain!, 'SSH domain'); }}
-                                  >
-                                    <ContentCopyIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
+                                <Typography variant="body2" sx={{ minWidth: 40 }}>SSH:</Typography>
+                                {vm.ssh_domain ? (
+                                  <>
+                                    <Chip label={vm.ssh_domain} size="small" color="primary" variant="outlined" />
+                                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); copyToClipboard(vm.ssh_domain!, 'SSH domain'); }}>
+                                      <ContentCopyIcon fontSize="small" />
+                                    </IconButton>
+                                  </>
+                                ) : <Typography variant="body2" color="text.disabled">-</Typography>}
                               </Box>
-                            ) : (
-                              <Typography variant="body2" color="text.disabled">Chưa thiết lập</Typography>
-                            )}
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="body2" sx={{ minWidth: 40 }}>Web:</Typography>
+                                {vm.web_domain ? (
+                                  <>
+                                    <Chip label={vm.web_domain} size="small" color="success" variant="outlined" component="a" href={`https://${vm.web_domain}`} target="_blank" clickable />
+                                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); copyToClipboard(vm.web_domain!, 'Web domain'); }}>
+                                      <ContentCopyIcon fontSize="small" />
+                                    </IconButton>
+                                  </>
+                                ) : <Typography variant="body2" color="text.disabled">-</Typography>}
+                              </Box>
+                            </Box>
                           </Grid>
 
                           {/* SSH Credentials */}
@@ -540,7 +587,7 @@ export default function AdminVmOverviewPage() {
         />
       </TableContainer>
 
-      <Dialog open={deleteDialog.open} onClose={() => setDeleteDialog({ open: false, vmId: null, vmName: '' })}>
+      <Dialog open={deleteDialog.open} onClose={() => !actionLoading && setDeleteDialog({ open: false, vmId: null, vmName: '' })}>
         <DialogTitle>Xác nhận xóa VM</DialogTitle>
         <DialogContent>
           <DialogContentText>
@@ -548,8 +595,40 @@ export default function AdminVmOverviewPage() {
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteDialog({ open: false, vmId: null, vmName: '' })}>Hủy</Button>
-          <Button onClick={handleDeleteVM} color="error" variant="contained">Xóa</Button>
+          <Button onClick={() => setDeleteDialog({ open: false, vmId: null, vmName: '' })} disabled={!!actionLoading}>Hủy</Button>
+          <Button onClick={handleDeleteVM} color="error" variant="contained" disabled={!!actionLoading}>
+            {actionLoading === deleteDialog.vmId ? <><CircularProgress size={16} color="inherit" sx={{ mr: 1 }} /> Đang xóa...</> : 'Xóa'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={transferDialog.open} onClose={() => setTransferDialog({ open: false, vm: null })} maxWidth="xs" fullWidth>
+        <DialogTitle>Chuyển VM cho người dùng khác</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            Chuyển VM "{transferDialog.vm?.name}" (hiện tại thuộc về <strong>{transferDialog.vm?.username}</strong>) cho người dùng khác.
+          </DialogContentText>
+          <FormControl fullWidth>
+            <InputLabel>Chọn người dùng mới</InputLabel>
+            <Select
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value as number)}
+              label="Chọn người dùng mới"
+            >
+              {users
+                .filter(u => u.id !== transferDialog.vm?.user_id)
+                .map(u => (
+                  <MenuItem key={u.id} value={u.id}>{u.username}</MenuItem>
+                ))
+              }
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTransferDialog({ open: false, vm: null })}>Hủy</Button>
+          <Button onClick={handleTransferVM} color="primary" variant="contained" disabled={!selectedUserId}>
+            Chuyển
+          </Button>
         </DialogActions>
       </Dialog>
 

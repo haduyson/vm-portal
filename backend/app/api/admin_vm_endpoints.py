@@ -1,6 +1,7 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,10 @@ from app.schemas.admin_schemas import AdminVMResponse, AdminStatsResponse
 from app.services.proxmox_client import ProxmoxService, create_proxmox_service_for_vm
 from app.api.admin_shared_helpers import log_audit
 from sqlalchemy import func
+
+
+class VMTransferRequest(BaseModel):
+    new_user_id: int
 
 router = APIRouter(prefix="/admin", tags=["admin-vms"])
 
@@ -177,3 +182,54 @@ async def admin_delete_vm(
         await session.commit()
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Lỗi khi xóa VM: {str(e)}")
+
+
+@router.post("/vms/{vm_id}/transfer", response_model=AdminVMResponse)
+async def admin_transfer_vm(
+    vm_id: int,
+    request: VMTransferRequest,
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Transfer VM ownership to another user (admin only)."""
+    # Get VM
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+    if not vm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy VM")
+
+    # Get old owner
+    old_owner = await session.execute(select(User).where(User.id == vm.user_id))
+    old_owner = old_owner.scalar_one_or_none()
+
+    # Get new owner
+    new_owner = await session.execute(select(User).where(User.id == request.new_user_id))
+    new_owner = new_owner.scalar_one_or_none()
+    if not new_owner:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy người dùng mới")
+
+    if vm.user_id == request.new_user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VM đã thuộc về người dùng này")
+
+    # Transfer ownership
+    old_username = old_owner.username if old_owner else "unknown"
+    vm.user_id = request.new_user_id
+    await session.commit()
+    await session.refresh(vm)
+
+    await log_audit(
+        session, _admin.id, "transfer_vm", "vm", vm.id,
+        f"Transferred VM {vm.name} from {old_username} to {new_owner.username}"
+    )
+
+    return AdminVMResponse(
+        id=vm.id, user_id=vm.user_id, vmid=vm.vmid, name=vm.name,
+        cores=vm.cores, memory_mb=vm.memory_mb, disk_gb=vm.disk_gb,
+        os_type=vm.os_type, status=vm.status, ip_address=vm.ip_address,
+        ssh_domain=vm.ssh_domain, web_domain=vm.web_domain,
+        ssh_username=vm.ssh_username, ssh_password=vm.ssh_password,
+        proxmox_node=vm.proxmox_node, storage=vm.storage,
+        created_at=vm.created_at, updated_at=vm.updated_at, username=new_owner.username,
+    )
