@@ -55,6 +55,7 @@ interface VMDetail {
   os_type: string;
   ip_address: string | null;
   ssh_domain: string | null;
+  web_domain: string | null;
   ssh_username: string | null;
   ssh_password: string | null;
   proxmox_node: string;
@@ -372,6 +373,23 @@ export default function VMDetailPage() {
                 <Box>
                   <Typography variant="body2" color="text.secondary">SSH Domain</Typography>
                   <Typography variant="body1">{vm.ssh_domain || 'Chưa có'}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="body2" color="text.secondary">Web Domain</Typography>
+                  {vm.web_domain ? (
+                    <Typography
+                      variant="body1"
+                      component="a"
+                      href={`https://${vm.web_domain}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      sx={{ color: 'primary.main', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
+                    >
+                      {vm.web_domain}
+                    </Typography>
+                  ) : (
+                    <Typography variant="body1">Chưa có</Typography>
+                  )}
                 </Box>
                 <Box>
                   <Typography variant="body2" color="text.secondary">SSH Username</Typography>

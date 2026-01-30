@@ -84,10 +84,11 @@ async def create_vm(
                     detail=f"Đã vượt giới hạn số CPU cores ({current_cpu_cores + vm_data.cores}/{current_user.max_cpu_cores})",
                 )
 
-        # Validate SSH subdomain if provided or auto-assign if enabled
-        ssh_subdomain = None
+        # Validate SSH and HTTP subdomains if auto-assign is enabled
+        vm_base_subdomain = None
         cf_domain = None
         ssh_full_domain = None
+        web_full_domain = None
 
         # Check if auto-assign is enabled
         auto_assign_enabled = await get_setting(session, "auto_assign_ip_subdomain")
@@ -96,10 +97,10 @@ async def create_vm(
         if vm_data.ssh_subdomain or should_auto_assign:
             if should_auto_assign:
                 # Auto-generate subdomain from VM name
-                ssh_subdomain = vm_data.name.strip().lower()
+                vm_base_subdomain = vm_data.name.strip().lower()
             else:
-                ssh_subdomain = vm_data.ssh_subdomain.strip().lower()
-            valid, error_msg = CloudflareTunnelService.validate_subdomain(ssh_subdomain)
+                vm_base_subdomain = vm_data.ssh_subdomain.strip().lower()
+            valid, error_msg = CloudflareTunnelService.validate_subdomain(vm_base_subdomain)
             if not valid:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -139,21 +140,31 @@ async def create_vm(
                         detail="Không có domain nào khả dụng. Vui lòng liên hệ quản trị viên.",
                     )
 
-            ssh_full_domain = f"{ssh_subdomain}.{cf_domain.domain}"
+            # SSH subdomain: {vm-name}.ssh.{domain} (e.g., myvm.ssh.hasonmedia.com)
+            # HTTP subdomain: {vm-name}.{domain} (e.g., myvm.hasonmedia.com)
+            ssh_full_domain = f"{vm_base_subdomain}.ssh.{cf_domain.domain}"
+            web_full_domain = f"{vm_base_subdomain}.{cf_domain.domain}"
 
-            # Check DB uniqueness
-            existing = await session.execute(
-                select(VirtualMachine).where(
-                    VirtualMachine.ssh_domain == ssh_full_domain
-                )
+            # Check DB uniqueness for both domains
+            existing_ssh = await session.execute(
+                select(VirtualMachine).where(VirtualMachine.ssh_domain == ssh_full_domain)
             )
-            if existing.scalar_one_or_none():
+            if existing_ssh.scalar_one_or_none():
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Subdomain '{ssh_full_domain}' đã được sử dụng",
+                    detail=f"SSH subdomain '{ssh_full_domain}' đã được sử dụng",
                 )
 
-            # Check Cloudflare DNS availability
+            existing_web = await session.execute(
+                select(VirtualMachine).where(VirtualMachine.web_domain == web_full_domain)
+            )
+            if existing_web.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Web subdomain '{web_full_domain}' đã được sử dụng",
+                )
+
+            # Check Cloudflare DNS availability for both subdomains
             try:
                 cf_service = CloudflareTunnelService(
                     api_token=cf_domain.cf_api_token,
@@ -163,11 +174,19 @@ async def create_vm(
                     base_domain=cf_domain.domain,
                     config_path=cf_domain.cloudflared_config_path,
                 )
-                available = await cf_service.is_subdomain_available(ssh_subdomain)
-                if not available:
+                # Check SSH subdomain
+                ssh_available = await cf_service.is_subdomain_available(f"{vm_base_subdomain}.ssh")
+                if not ssh_available:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Subdomain '{ssh_full_domain}' đã tồn tại trên Cloudflare",
+                        detail=f"SSH subdomain '{ssh_full_domain}' đã tồn tại trên Cloudflare",
+                    )
+                # Check HTTP subdomain
+                web_available = await cf_service.is_subdomain_available(vm_base_subdomain)
+                if not web_available:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Web subdomain '{web_full_domain}' đã tồn tại trên Cloudflare",
                     )
             except HTTPException:
                 raise
@@ -263,7 +282,8 @@ async def create_vm(
             status="creating",
             proxmox_node=node_name,
             storage=storage_name,
-            ssh_domain=ssh_full_domain if ssh_subdomain else None,
+            ssh_domain=ssh_full_domain if vm_base_subdomain else None,
+            web_domain=web_full_domain if vm_base_subdomain else None,
         )
 
         session.add(new_vm)
@@ -567,8 +587,8 @@ async def delete_vm(
         except Exception:
             pass  # Non-critical cleanup
 
-        # Cleanup Cloudflare tunnel if SSH subdomain was configured
-        if vm.ssh_domain:
+        # Cleanup Cloudflare tunnel for SSH and HTTP subdomains
+        if vm.ssh_domain or vm.web_domain:
             try:
                 # Find matching CloudflareDomain
                 _cf_domain_model = importlib.import_module("app.models.cloudflare-domain-model")
@@ -580,21 +600,29 @@ async def delete_vm(
                 domains = domains_result.scalars().all()
 
                 for d in domains:
-                    if vm.ssh_domain.endswith(f".{d.domain}"):
-                        subdomain = vm.ssh_domain.replace(f".{d.domain}", "")
-                        cf_service = CloudflareTunnelService(
-                            api_token=d.cf_api_token,
-                            zone_id=d.cf_zone_id,
-                            tunnel_id=d.cf_tunnel_id,
-                            tunnel_name=d.cf_tunnel_name,
-                            base_domain=d.domain,
-                            config_path=d.cloudflared_config_path,
-                        )
-                        await cf_service.remove_ssh_ingress(subdomain)
-                        print(f"Cleaned up CF tunnel for {vm.ssh_domain}")
-                        break
+                    cf_service = CloudflareTunnelService(
+                        api_token=d.cf_api_token,
+                        zone_id=d.cf_zone_id,
+                        tunnel_id=d.cf_tunnel_id,
+                        tunnel_name=d.cf_tunnel_name,
+                        base_domain=d.domain,
+                        config_path=d.cloudflared_config_path,
+                    )
+
+                    # Cleanup SSH subdomain
+                    if vm.ssh_domain and vm.ssh_domain.endswith(f".{d.domain}"):
+                        ssh_subdomain = vm.ssh_domain.replace(f".{d.domain}", "")
+                        await cf_service.remove_ssh_ingress(ssh_subdomain)
+                        print(f"Cleaned up SSH tunnel for {vm.ssh_domain}")
+
+                    # Cleanup HTTP subdomain
+                    if vm.web_domain and vm.web_domain.endswith(f".{d.domain}"):
+                        web_subdomain = vm.web_domain.replace(f".{d.domain}", "")
+                        await cf_service.remove_ssh_ingress(web_subdomain)  # Same cleanup method
+                        print(f"Cleaned up HTTP tunnel for {vm.web_domain}")
+
             except Exception as cf_err:
-                print(f"Warning: Failed to cleanup CF tunnel for {vm.ssh_domain}: {cf_err}")
+                print(f"Warning: Failed to cleanup CF tunnel: {cf_err}")
 
         await session.delete(vm)
         await session.commit()

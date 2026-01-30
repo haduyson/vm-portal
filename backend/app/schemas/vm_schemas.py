@@ -39,6 +39,7 @@ class VMResponse(BaseModel):
     status: str
     ip_address: Optional[str]
     ssh_domain: Optional[str]
+    web_domain: Optional[str]
     ssh_username: Optional[str]
     ssh_password: Optional[str]
     proxmox_node: str

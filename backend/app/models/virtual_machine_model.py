@@ -20,6 +20,7 @@ class VirtualMachine(Base):
     status = Column(String, default="creating", nullable=False)
     ip_address = Column(String, nullable=True)
     ssh_domain = Column(String, nullable=True)
+    web_domain = Column(String, nullable=True)  # HTTP subdomain for web access
     ssh_username = Column(String, nullable=True)
     ssh_password = Column(String, nullable=True)
     proxmox_node = Column(String, nullable=False)

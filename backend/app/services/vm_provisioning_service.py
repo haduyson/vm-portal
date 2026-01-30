@@ -347,8 +347,8 @@ class VMProvisioningService:
                 vm.status = "running"
                 vm.ip_address = ip_address
 
-                # Setup Cloudflare tunnel SSH if subdomain was pre-set
-                if vm.ssh_domain:
+                # Setup Cloudflare tunnel for SSH and HTTP if subdomains are pre-set
+                if vm.ssh_domain or vm.web_domain:
                     try:
                         import importlib
                         _cf_domain_model = importlib.import_module("app.models.cloudflare-domain-model")
@@ -360,22 +360,30 @@ class VMProvisioningService:
                         domains = domains_result.scalars().all()
 
                         for d in domains:
-                            if vm.ssh_domain.endswith(f".{d.domain}"):
+                            _cf_mod = importlib.import_module("app.services.cloudflare-tunnel-service")
+                            cf_service = _cf_mod.CloudflareTunnelService(
+                                api_token=d.cf_api_token,
+                                zone_id=d.cf_zone_id,
+                                tunnel_id=d.cf_tunnel_id,
+                                tunnel_name=d.cf_tunnel_name,
+                                base_domain=d.domain,
+                                config_path=d.cloudflared_config_path,
+                            )
+
+                            # Setup SSH tunnel
+                            if vm.ssh_domain and vm.ssh_domain.endswith(f".{d.domain}"):
                                 subdomain = vm.ssh_domain.replace(f".{d.domain}", "")
-                                _cf_mod = importlib.import_module("app.services.cloudflare-tunnel-service")
-                                cf_service = _cf_mod.CloudflareTunnelService(
-                                    api_token=d.cf_api_token,
-                                    zone_id=d.cf_zone_id,
-                                    tunnel_id=d.cf_tunnel_id,
-                                    tunnel_name=d.cf_tunnel_name,
-                                    base_domain=d.domain,
-                                    config_path=d.cloudflared_config_path,
-                                )
                                 await cf_service.add_ssh_ingress(subdomain, ip_address)
-                                print(f"Cloudflare tunnel configured: {vm.ssh_domain} → {ip_address}")
-                                break
+                                print(f"SSH tunnel configured: {vm.ssh_domain} → {ip_address}")
+
+                            # Setup HTTP tunnel for web access
+                            if vm.web_domain and vm.web_domain.endswith(f".{d.domain}"):
+                                web_subdomain = vm.web_domain.replace(f".{d.domain}", "")
+                                await cf_service.add_http_ingress(web_subdomain, ip_address)
+                                print(f"HTTP tunnel configured: {vm.web_domain} → {ip_address}")
+
                     except Exception as cf_err:
-                        print(f"Warning: Failed to setup CF tunnel for {vm.ssh_domain}: {cf_err}")
+                        print(f"Warning: Failed to setup CF tunnel: {cf_err}")
                 elif not vm.ssh_domain:
                     vm.ssh_domain = f"{vm.name}.{settings.CF_TUNNEL_DOMAIN}"
 

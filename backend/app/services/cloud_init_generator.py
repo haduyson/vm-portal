@@ -1,7 +1,123 @@
 import random
 import string
-from typing import Tuple
+from typing import Tuple, Optional
 import yaml
+
+
+# Hason Tech default landing page HTML
+HASONTECH_LANDING_PAGE = '''<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VM CLOUD - HASONTECH</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #ffffff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+        .logo { max-width: 200px; margin-bottom: 20px; }
+        h1 { color: #1a202c; font-size: 24px; margin-bottom: 10px; }
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #d4edda;
+            color: #155724;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 500;
+            margin-bottom: 20px;
+        }
+        .status::before {
+            content: "";
+            width: 10px;
+            height: 10px;
+            background: #28a745;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .info {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            text-align: left;
+        }
+        .info h3 { color: #495057; font-size: 13px; margin-bottom: 15px; }
+        .info-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            color: #495057;
+            font-size: 14px;
+        }
+        .info-row svg { width: 18px; height: 18px; flex-shrink: 0; }
+        a { color: #667eea; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .footer { margin-top: 20px; font-size: 12px; color: #6c757d; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <img src="https://vpscloud.hasonmedia.com/static/logo-hasontech.png" alt="Hason Tech" class="logo">
+        <h1>VM HASON TECH</h1>
+        <div class="status">Máy chủ đang hoạt động</div>
+        <div class="info">
+            <h3>CÔNG TY TNHH MỘT THÀNH VIÊN CÔNG NGHỆ HÀ SƠN</h3>
+            <div class="info-row">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                    <circle cx="12" cy="10" r="3"></circle>
+                </svg>
+                <span>300 Xô Viết Nghệ Tĩnh, P. Cẩm Lệ, TP. Đà Nẵng</span>
+            </div>
+            <div class="info-row">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                </svg>
+                <a href="tel:02363507507">(0236) 3.507.507</a>
+            </div>
+            <div class="info-row">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                    <polyline points="22,6 12,13 2,6"></polyline>
+                </svg>
+                <a href="mailto:lienhe@hasontech.vn">lienhe@hasontech.vn</a>
+            </div>
+            <div class="info-row">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="2" y1="12" x2="22" y2="12"></line>
+                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                </svg>
+                <a href="https://hasontech.vn" target="_blank">hasontech.vn</a>
+            </div>
+        </div>
+        <div class="footer">Powered by Hason Tech Cloud</div>
+    </div>
+</body>
+</html>'''
 
 
 class CloudInitGenerator:
@@ -15,7 +131,7 @@ class CloudInitGenerator:
         return username, password
 
     @staticmethod
-    def generate_user_data(vm_name: str, username: str, password: str) -> str:
+    def generate_user_data(vm_name: str, username: str, password: str, web_domain: Optional[str] = None) -> str:
         """Generate cloud-init user-data YAML configuration."""
         config = {
             "#cloud-config": None,
@@ -33,6 +149,14 @@ class CloudInitGenerator:
                 "curl",
                 "wget",
                 "qemu-guest-agent",
+                "nginx",  # Web server for HTTP subdomain
+            ],
+            "write_files": [
+                {
+                    "path": "/var/www/html/index.html",
+                    "content": HASONTECH_LANDING_PAGE,
+                    "permissions": "0644",
+                },
             ],
             "runcmd": [
                 # Ensure SSH is configured for password auth and root login
@@ -48,6 +172,9 @@ class CloudInitGenerator:
                 # QEMU Guest Agent
                 "systemctl enable qemu-guest-agent",
                 "systemctl start qemu-guest-agent",
+                # Enable and start nginx web server
+                "systemctl enable nginx",
+                "systemctl start nginx",
             ],
         }
 

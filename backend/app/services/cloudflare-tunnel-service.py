@@ -1,12 +1,12 @@
 import re
 import yaml
 import aiohttp
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from app.config import settings
 
 
 class CloudflareTunnelService:
-    """Manage Cloudflare Tunnel DNS records and cloudflared ingress config."""
+    """Manage Cloudflare Tunnel DNS records and tunnel ingress config via API."""
 
     def __init__(
         self,
@@ -16,6 +16,7 @@ class CloudflareTunnelService:
         tunnel_name: Optional[str] = None,
         base_domain: Optional[str] = None,
         config_path: Optional[str] = None,
+        account_id: Optional[str] = None,
     ):
         self.api_token = api_token or settings.CF_API_TOKEN
         self.zone_id = zone_id or settings.CF_ZONE_ID
@@ -23,6 +24,7 @@ class CloudflareTunnelService:
         self.tunnel_name = tunnel_name or settings.CF_TUNNEL_NAME
         self.base_domain = base_domain or settings.CF_BASE_DOMAIN
         self.config_path = config_path or settings.CF_CLOUDFLARED_CONFIG_PATH
+        self.account_id = account_id  # Will be fetched from zone if not provided
         self._headers = {
             "Authorization": f"Bearer {self.api_token}",
             "Content-Type": "application/json",
@@ -65,7 +67,7 @@ class CloudflareTunnelService:
                     raise Exception(f"Cloudflare API error: {data.get('errors')}")
                 return len(data.get("result", [])) == 0
 
-    async def _create_dns_cname(self, subdomain: str) -> dict:
+    async def _create_dns_cname(self, subdomain: str, comment: str = None) -> dict:
         """Create CNAME DNS record pointing to tunnel."""
         full_domain = self._full_domain(subdomain)
         tunnel_target = f"{self.tunnel_id}.cfargotunnel.com"
@@ -75,7 +77,7 @@ class CloudflareTunnelService:
             "name": full_domain,
             "content": tunnel_target,
             "proxied": True,
-            "comment": f"VM SSH tunnel - {subdomain}",
+            "comment": comment or f"VM tunnel - {subdomain}",
         }
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=self._headers, json=payload) as resp:
@@ -105,6 +107,77 @@ class CloudflareTunnelService:
                 data = await resp.json()
                 return data.get("success", False)
 
+    async def _get_account_id(self) -> str:
+        """Get Cloudflare account ID from zone info."""
+        if self.account_id:
+            return self.account_id
+        url = f"{self._cf_api}/zones/{self.zone_id}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=self._headers) as resp:
+                data = await resp.json()
+                if not data.get("success"):
+                    raise Exception(f"Failed to get zone info: {data.get('errors')}")
+                self.account_id = data["result"]["account"]["id"]
+                return self.account_id
+
+    async def _get_tunnel_config(self) -> Dict[str, Any]:
+        """Get current tunnel configuration from Cloudflare API."""
+        account_id = await self._get_account_id()
+        url = f"{self._cf_api}/accounts/{account_id}/cfd_tunnel/{self.tunnel_id}/configurations"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=self._headers) as resp:
+                data = await resp.json()
+                if not data.get("success"):
+                    raise Exception(f"Failed to get tunnel config: {data.get('errors')}")
+                return data["result"]["config"]
+
+    async def _update_tunnel_config(self, config: Dict[str, Any]) -> bool:
+        """Update tunnel configuration via Cloudflare API."""
+        account_id = await self._get_account_id()
+        url = f"{self._cf_api}/accounts/{account_id}/cfd_tunnel/{self.tunnel_id}/configurations"
+        payload = {"config": config}
+        async with aiohttp.ClientSession() as session:
+            async with session.put(url, headers=self._headers, json=payload) as resp:
+                data = await resp.json()
+                if not data.get("success"):
+                    raise Exception(f"Failed to update tunnel config: {data.get('errors')}")
+                print(f"Tunnel config updated to version {data['result']['version']}")
+                return True
+
+    async def _add_ingress_to_tunnel(self, hostname: str, service_url: str):
+        """Add ingress entry to tunnel config via API."""
+        config = await self._get_tunnel_config()
+        ingress = config.get("ingress", [])
+
+        # Remove existing entry for this hostname if any
+        ingress = [e for e in ingress if e.get("hostname") != hostname]
+
+        # Find catch-all (entry without hostname) and insert before it
+        new_entry = {"hostname": hostname, "service": service_url}
+        catch_all_idx = next((i for i, e in enumerate(ingress) if "hostname" not in e), len(ingress))
+        ingress.insert(catch_all_idx, new_entry)
+
+        # Ensure catch-all exists
+        if not any("hostname" not in e for e in ingress):
+            ingress.append({"service": "http_status:404"})
+
+        config["ingress"] = ingress
+        await self._update_tunnel_config(config)
+
+    async def _remove_ingress_from_tunnel(self, hostname: str):
+        """Remove ingress entry from tunnel config via API."""
+        config = await self._get_tunnel_config()
+        ingress = config.get("ingress", [])
+
+        # Remove entry with matching hostname
+        config["ingress"] = [e for e in ingress if e.get("hostname") != hostname]
+
+        # Ensure catch-all exists
+        if not any("hostname" not in e for e in config["ingress"]):
+            config["ingress"].append({"service": "http_status:404"})
+
+        await self._update_tunnel_config(config)
+
     def _read_config(self) -> dict:
         """Read cloudflared config.yml."""
         try:
@@ -122,8 +195,10 @@ class CloudflareTunnelService:
         with open(self.config_path, "w") as f:
             yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
 
-    def _add_ingress_entry(self, subdomain: str, target_ip: str):
-        """Add SSH ingress entry to cloudflared config."""
+    def _add_ingress_entry(self, subdomain: str, target_ip: str, service_type: str = "ssh"):
+        """Add ingress entry to cloudflared config.
+        service_type: 'ssh' or 'http'
+        """
         config = self._read_config()
         ingress = config.get("ingress", [])
         full_domain = self._full_domain(subdomain)
@@ -134,10 +209,16 @@ class CloudflareTunnelService:
             if entry.get("hostname") != full_domain
         ]
 
+        # Build service URL based on type
+        if service_type == "http":
+            service_url = f"http://{target_ip}:80"
+        else:
+            service_url = f"ssh://{target_ip}:22"
+
         # Insert before the catch-all (last entry)
         new_entry = {
             "hostname": full_domain,
-            "service": f"ssh://{target_ip}:22",
+            "service": service_url,
         }
         if ingress and "hostname" not in ingress[-1]:
             # Last entry is catch-all, insert before it
@@ -167,25 +248,26 @@ class CloudflareTunnelService:
         self._write_config(config)
 
     async def add_ssh_ingress(self, subdomain: str, target_ip: str):
-        """Full setup: create DNS CNAME + add ingress + reload."""
-        await self._create_dns_cname(subdomain)
-        self._add_ingress_entry(subdomain, target_ip)
-        await self.reload_cloudflared()
+        """Full setup: create DNS CNAME + add SSH ingress via API."""
+        full_domain = self._full_domain(subdomain)
+        await self._create_dns_cname(subdomain, f"VM SSH tunnel - {subdomain}")
+        await self._add_ingress_to_tunnel(full_domain, f"ssh://{target_ip}:22")
+
+    async def add_http_ingress(self, subdomain: str, target_ip: str):
+        """Full setup: create DNS CNAME + add HTTP ingress via API."""
+        full_domain = self._full_domain(subdomain)
+        await self._create_dns_cname(subdomain, f"VM Web - {subdomain}")
+        await self._add_ingress_to_tunnel(full_domain, f"http://{target_ip}:80")
 
     async def remove_ssh_ingress(self, subdomain: str):
-        """Full teardown: remove ingress + delete DNS + reload."""
-        self._remove_ingress_entry(subdomain)
+        """Full teardown: remove ingress via API + delete DNS."""
+        full_domain = self._full_domain(subdomain)
+        await self._remove_ingress_from_tunnel(full_domain)
         await self._delete_dns_cname(subdomain)
-        await self.reload_cloudflared()
 
+    # Keep local config methods for backward compatibility but they're not used with remote management
     async def reload_cloudflared(self):
-        """Restart cloudflared service to pick up config changes."""
-        import asyncio
-        proc = await asyncio.create_subprocess_exec(
-            "systemctl", "restart", "cloudflared",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            print(f"Warning: cloudflared restart failed: {stderr.decode()}")
+        """Restart cloudflared service (not needed with remote management)."""
+        # With remote management, cloudflared automatically picks up config changes
+        # This is kept for backward compatibility but is essentially a no-op now
+        pass
