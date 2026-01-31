@@ -38,6 +38,7 @@ services:
       - /var/lock/qemu-server:/var/lock/qemu-server:ro
       - /etc/cloudflared:/etc/cloudflared
       - /var/lib/vz/snippets:/var/lib/vz/snippets
+      - ./nginx/html:/app/static:ro
 
   nginx:
     image: nginx:alpine

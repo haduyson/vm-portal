@@ -1,20 +1,50 @@
 import random
 import string
+import base64
+import os
 from typing import Tuple, Optional
 import yaml
 import json
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.config import settings
+
+# Path to static files (mounted in docker)
+STATIC_DIR = "/app/static"
+
+
+def _resolve_logo_url(logo_url: str) -> str:
+    """Convert logo path to base64 data URL for embedding in HTML."""
+    if logo_url.startswith(('http://', 'https://', 'data:')):
+        return logo_url
+
+    # Try to read file and convert to base64
+    if logo_url.startswith('/static/'):
+        file_path = os.path.join(STATIC_DIR, logo_url[8:])  # Remove /static/ prefix
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'rb') as f:
+                    b64 = base64.b64encode(f.read()).decode('utf-8')
+                ext = os.path.splitext(file_path)[1].lower()
+                mime = {'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'gif': 'image/gif', 'svg': 'image/svg+xml'}.get(ext.lstrip('.'), 'image/png')
+                return f"data:{mime};base64,{b64}"
+            except Exception:
+                pass
+
+    # Fallback to portal URL
+    portal = settings.PORTAL_URL.rstrip('/')
+    return f"{portal}{logo_url}"
 
 
 def generate_landing_page_html(config: dict) -> str:
     """Generate landing page HTML from configuration."""
+    logo_url = _resolve_logo_url(config.get("logo_url", "/static/logo-hasontech.png"))
     return f'''<!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{config.get("title", "VM CLOUD - HASONTECH")}</title>
-    <link rel="icon" href="{config.get("logo_url", "/static/logo-hasontech.png")}">
+    <link rel="icon" href="{logo_url}">
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
@@ -94,7 +124,7 @@ def generate_landing_page_html(config: dict) -> str:
 </head>
 <body>
     <div class="container">
-        <img src="{config.get("logo_url", "/static/logo-hasontech.png")}" alt="Logo" class="logo">
+        <img src="{logo_url}" alt="Logo" class="logo">
         <h1>{config.get("title", "VM CLOUD - HASONTECH")}</h1>
         <div class="status">Máy chủ đang hoạt động</div>
         {f'<div class="message">{config.get("message", "")}</div>' if config.get("message") else ""}
