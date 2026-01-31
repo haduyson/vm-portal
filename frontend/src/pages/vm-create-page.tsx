@@ -258,7 +258,13 @@ export default function VMCreatePage() {
       setSnackbar({ open: true, message: 'Đã khởi tạo máy ảo thành công!', severity: 'success' });
       setTimeout(() => navigate('/vms'), 1500);
     } catch (error: any) {
-      const errorMessage = error.response?.data?.detail || 'Có lỗi xảy ra khi tạo máy ảo';
+      let errorMessage = 'Có lỗi xảy ra khi tạo máy ảo';
+      const detail = error.response?.data?.detail;
+      if (typeof detail === 'string') {
+        errorMessage = detail;
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        errorMessage = detail.map((e: any) => e.msg || e.message || JSON.stringify(e)).join(', ');
+      }
       setSnackbar({ open: true, message: errorMessage, severity: 'error' });
     } finally {
       setLoading(false);
