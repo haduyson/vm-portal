@@ -42,6 +42,9 @@ user_ip_pool_router = _user_ip_pool_mod.router
 _admin_feature_flags_mod = importlib.import_module("app.api.admin-feature-flags-endpoints")
 admin_feature_flags_router = _admin_feature_flags_mod.router
 
+_admin_notif_templates_mod = importlib.import_module("app.api.admin-notification-templates-endpoints")
+admin_notification_templates_router = _admin_notif_templates_mod.router
+
 __all__ = [
     "auth_router",
     "vm_router",
@@ -65,4 +68,5 @@ __all__ = [
     "network_bridges_public_router",
     "user_ip_pool_router",
     "admin_feature_flags_router",
+    "admin_notification_templates_router",
 ]

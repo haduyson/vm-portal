@@ -12,7 +12,6 @@ import {
   FormControlLabel,
   Divider,
   IconButton,
-  InputAdornment,
   Chip,
   Table,
   TableBody,
@@ -22,19 +21,11 @@ import {
   TableRow,
   Paper,
   Checkbox,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
 } from '@mui/material';
 import {
-  Visibility,
-  VisibilityOff,
-  Send as SendIcon,
   Add as AddIcon,
   Delete as DeleteIcon,
   Search as SearchIcon,
-  Email as EmailIcon,
 } from '@mui/icons-material';
 import {
   Dialog,
@@ -50,24 +41,6 @@ interface AllSettings {
   refresh_token_expiry_days: string;
   temp_password_expiry_minutes: string;
   auto_assign_ip_subdomain: string;
-  telegram_bot_token: string | null;
-  telegram_bot_token_masked: string;
-  telegram_default_chat_id: string | null;
-  telegram_portal_url: string | null;
-  telegram_source: string;
-}
-
-interface EmailSettings {
-  provider: string;
-  smtp_host: string | null;
-  smtp_port: number;
-  smtp_user: string | null;
-  smtp_password_masked: string;
-  smtp_use_tls: boolean;
-  api_key_masked: string;
-  from_email: string;
-  from_name: string;
-  is_configured: boolean;
 }
 
 interface OsTemplate {
@@ -97,56 +70,29 @@ interface ProxmoxIso {
 }
 
 export default function AdminSettingsPage() {
-  const [settings, setSettings] = useState<AllSettings | null>(null);
   const [featureNoVNC, setFeatureNoVNC] = useState(false);
   const [feature2FA, setFeature2FA] = useState(false);
   const [autoAssignIpSubdomain, setAutoAssignIpSubdomain] = useState(false);
   const [refreshExpiry, setRefreshExpiry] = useState('7');
   const [tempPasswordExpiry, setTempPasswordExpiry] = useState('60');
-  const [botToken, setBotToken] = useState('');
-  const [chatId, setChatId] = useState('');
-  const [portalUrl, setPortalUrl] = useState('');
-  const [showToken, setShowToken] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [testLoading, setTestLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [osTemplates, setOsTemplates] = useState<OsTemplate[]>([]);
-
-  // Email settings state
-  const [emailSettings, setEmailSettings] = useState<EmailSettings | null>(null);
-  const [emailProvider, setEmailProvider] = useState('smtp');
-  const [smtpHost, setSmtpHost] = useState('');
-  const [smtpPort, setSmtpPort] = useState(587);
-  const [smtpUser, setSmtpUser] = useState('');
-  const [smtpPassword, setSmtpPassword] = useState('');
-  const [smtpUseTls, setSmtpUseTls] = useState(true);
-  const [emailApiKey, setEmailApiKey] = useState('');
-  const [fromEmail, setFromEmail] = useState('');
-  const [fromName, setFromName] = useState('');
-  const [showSmtpPassword, setShowSmtpPassword] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [emailTestLoading, setEmailTestLoading] = useState(false);
 
   // Global feature flags state
   interface FeatureFlags {
     cloudflare_tunnel_enabled: boolean;
     public_ip_enabled: boolean;
-    email_notifications_enabled: boolean;
-    telegram_notifications_enabled: boolean;
   }
   const [featureFlags, setFeatureFlags] = useState<FeatureFlags>({
     cloudflare_tunnel_enabled: true,
     public_ip_enabled: true,
-    email_notifications_enabled: true,
-    telegram_notifications_enabled: true,
   });
-  const [testEmailAddress, setTestEmailAddress] = useState('');
 
   useEffect(() => {
     loadSettings();
     loadOsTemplates();
-    loadEmailSettings();
     loadFeatureFlags();
   }, []);
 
@@ -154,14 +100,11 @@ export default function AdminSettingsPage() {
     try {
       const response = await apiClient.get('/admin/settings');
       const data: AllSettings = response.data;
-      setSettings(data);
       setFeatureNoVNC(data.feature_novnc_console === 'true');
       setFeature2FA(data.feature_2fa_required === 'true');
       setAutoAssignIpSubdomain(data.auto_assign_ip_subdomain === 'true');
       setRefreshExpiry(data.refresh_token_expiry_days || '7');
       setTempPasswordExpiry(data.temp_password_expiry_minutes || '60');
-      setChatId(data.telegram_default_chat_id || '');
-      setPortalUrl(data.telegram_portal_url || '');
     } catch {
       setErrorMessage('Không thể tải cấu hình');
     }
@@ -181,39 +124,13 @@ export default function AdminSettingsPage() {
         temp_password_expiry_minutes: tempPasswordExpiry,
       };
 
-      if (botToken.trim()) {
-        payload.telegram_bot_token = botToken.trim();
-      }
-      if (chatId.trim()) {
-        payload.telegram_default_chat_id = chatId.trim();
-      }
-      if (portalUrl.trim()) {
-        payload.telegram_portal_url = portalUrl.trim();
-      }
-
       await apiClient.put('/admin/settings', payload);
       setSuccessMessage('Đã lưu cài đặt thành công');
-      setBotToken('');
       await loadSettings();
     } catch (error: any) {
       setErrorMessage(error.response?.data?.detail || 'Không thể lưu cài đặt');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleTestTelegram = async () => {
-    setTestLoading(true);
-    setSuccessMessage('');
-    setErrorMessage('');
-
-    try {
-      const response = await apiClient.post('/admin/settings/telegram/test', {});
-      setSuccessMessage(response.data.message || 'Đã gửi tin nhắn thử thành công');
-    } catch (error: any) {
-      setErrorMessage(error.response?.data?.detail || 'Không thể gửi tin nhắn thử');
-    } finally {
-      setTestLoading(false);
     }
   };
 
@@ -223,80 +140,6 @@ export default function AdminSettingsPage() {
       setOsTemplates(response.data);
     } catch {
       // OS templates not loaded - non-critical
-    }
-  };
-
-  const loadEmailSettings = async () => {
-    try {
-      const response = await apiClient.get('/admin/settings/email');
-      const data: EmailSettings = response.data;
-      setEmailSettings(data);
-      setEmailProvider(data.provider || 'smtp');
-      setSmtpHost(data.smtp_host || '');
-      setSmtpPort(data.smtp_port || 587);
-      setSmtpUser(data.smtp_user || '');
-      setSmtpUseTls(data.smtp_use_tls);
-      setFromEmail(data.from_email || '');
-      setFromName(data.from_name || '');
-    } catch {
-      // Email settings not loaded - non-critical
-    }
-  };
-
-  const handleSaveEmailSettings = async () => {
-    setLoading(true);
-    setSuccessMessage('');
-    setErrorMessage('');
-
-    try {
-      const payload: Record<string, string | number | boolean> = {
-        provider: emailProvider,
-        smtp_host: smtpHost,
-        smtp_port: smtpPort,
-        smtp_user: smtpUser,
-        smtp_use_tls: smtpUseTls,
-        from_email: fromEmail,
-        from_name: fromName,
-      };
-
-      if (smtpPassword.trim()) {
-        payload.smtp_password = smtpPassword.trim();
-      }
-      if (emailApiKey.trim()) {
-        payload.api_key = emailApiKey.trim();
-      }
-
-      await apiClient.put('/admin/settings/email', payload);
-      setSuccessMessage('Đã lưu cài đặt email thành công');
-      setSmtpPassword('');
-      setEmailApiKey('');
-      await loadEmailSettings();
-    } catch (error: any) {
-      setErrorMessage(error.response?.data?.detail || 'Không thể lưu cài đặt email');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleTestEmail = async () => {
-    if (!testEmailAddress.trim()) {
-      setErrorMessage('Vui lòng nhập địa chỉ email để test');
-      return;
-    }
-
-    setEmailTestLoading(true);
-    setSuccessMessage('');
-    setErrorMessage('');
-
-    try {
-      const response = await apiClient.post('/admin/settings/email/test', {
-        to_email: testEmailAddress.trim(),
-      });
-      setSuccessMessage(response.data.message || 'Đã gửi email thử thành công');
-    } catch (error: any) {
-      setErrorMessage(error.response?.data?.detail || 'Không thể gửi email thử');
-    } finally {
-      setEmailTestLoading(false);
     }
   };
 
@@ -539,32 +382,6 @@ export default function AdminSettingsPage() {
             <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: -1 }}>
               Cho phép gán và giữ lại IP public
             </Typography>
-
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={featureFlags.email_notifications_enabled}
-                  onChange={(e) => handleUpdateFeatureFlag('email_notifications_enabled', e.target.checked)}
-                />
-              }
-              label="Thông báo Email"
-            />
-            <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: -1 }}>
-              Gửi thông báo qua email (VM ready, password reset, etc.)
-            </Typography>
-
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={featureFlags.telegram_notifications_enabled}
-                  onChange={(e) => handleUpdateFeatureFlag('telegram_notifications_enabled', e.target.checked)}
-                />
-              }
-              label="Thông báo Telegram"
-            />
-            <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: -1 }}>
-              Gửi thông báo qua Telegram
-            </Typography>
           </Stack>
         </CardContent>
       </Card>
@@ -596,226 +413,6 @@ export default function AdminSettingsPage() {
           </Stack>
         </CardContent>
       </Card>
-
-      {/* Telegram Settings - Only show when telegram notifications enabled */}
-      {featureFlags.telegram_notifications_enabled && (
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>Cấu hình Telegram</Typography>
-            <Divider sx={{ mb: 2 }} />
-            <Stack spacing={3}>
-              {settings && (
-                <Box>
-                  <Typography variant="body2" color="text.secondary" gutterBottom>
-                    Nguồn cấu hình:{' '}
-                    <Chip
-                      label={settings.telegram_source === 'database' ? 'Cơ sở dữ liệu' : 'Biến môi trường'}
-                      size="small"
-                      color={settings.telegram_source === 'database' ? 'primary' : 'default'}
-                    />
-                  </Typography>
-                </Box>
-              )}
-
-              <TextField
-                label="Bot Token"
-                type={showToken ? 'text' : 'password'}
-                value={botToken || settings?.telegram_bot_token || ''}
-                onChange={(e) => setBotToken(e.target.value)}
-                placeholder="Nhập bot token"
-                fullWidth
-                helperText="Nhập token mới để cập nhật, để trống nếu không muốn thay đổi"
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton onClick={() => setShowToken(!showToken)} edge="end">
-                        {showToken ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-
-              <TextField
-                label="Default Chat ID"
-                value={chatId}
-                onChange={(e) => setChatId(e.target.value)}
-                placeholder="Nhập chat ID mặc định"
-                fullWidth
-                helperText="Chat ID để nhận thông báo mặc định"
-              />
-
-              <TextField
-                label="URL Portal thông báo"
-                value={portalUrl}
-                onChange={(e) => setPortalUrl(e.target.value)}
-                placeholder="https://vm.example.com"
-                fullWidth
-                helperText="URL hiển thị trong thông báo Telegram (tạo user, reset password, VM sẵn sàng)"
-              />
-
-              <Button
-                variant="outlined"
-                startIcon={<SendIcon />}
-                onClick={handleTestTelegram}
-                disabled={testLoading || !settings?.telegram_default_chat_id}
-                sx={{ alignSelf: 'flex-start' }}
-              >
-                {testLoading ? 'Đang gửi...' : 'Gửi tin nhắn thử'}
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Email Settings - Only show when email notifications enabled */}
-      {featureFlags.email_notifications_enabled && (
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-              <Typography variant="h6">Cấu hình Email</Typography>
-              {emailSettings && (
-                <Chip
-                  label={emailSettings.is_configured ? 'Đã cấu hình' : 'Chưa cấu hình'}
-                  size="small"
-                  color={emailSettings.is_configured ? 'success' : 'default'}
-                />
-              )}
-            </Box>
-            <Divider sx={{ mb: 2 }} />
-            <Stack spacing={3}>
-              <FormControl fullWidth>
-                <InputLabel>Nhà cung cấp</InputLabel>
-                <Select
-                  value={emailProvider}
-                  label="Nhà cung cấp"
-                  onChange={(e) => setEmailProvider(e.target.value)}
-                >
-                  <MenuItem value="smtp">SMTP</MenuItem>
-                  <MenuItem value="sendgrid">SendGrid</MenuItem>
-                  <MenuItem value="resend">Resend</MenuItem>
-                </Select>
-              </FormControl>
-
-              {emailProvider === 'smtp' && (
-                <>
-                  <TextField
-                    label="SMTP Host"
-                    value={smtpHost}
-                    onChange={(e) => setSmtpHost(e.target.value)}
-                    placeholder="smtp.gmail.com"
-                    fullWidth
-                  />
-                  <TextField
-                    label="SMTP Port"
-                    type="number"
-                    value={smtpPort}
-                    onChange={(e) => setSmtpPort(parseInt(e.target.value) || 587)}
-                    fullWidth
-                    inputProps={{ min: 1, max: 65535 }}
-                  />
-                  <TextField
-                    label="SMTP Username"
-                    value={smtpUser}
-                    onChange={(e) => setSmtpUser(e.target.value)}
-                    placeholder="your-email@gmail.com"
-                    fullWidth
-                  />
-                  <TextField
-                    label="SMTP Password"
-                    type={showSmtpPassword ? 'text' : 'password'}
-                    value={smtpPassword}
-                    onChange={(e) => setSmtpPassword(e.target.value)}
-                    placeholder={emailSettings?.smtp_password_masked || 'Nhập mật khẩu SMTP'}
-                    fullWidth
-                    helperText="Nhập mật khẩu mới để cập nhật, để trống nếu không muốn thay đổi"
-                    InputProps={{
-                      endAdornment: (
-                        <InputAdornment position="end">
-                          <IconButton onClick={() => setShowSmtpPassword(!showSmtpPassword)} edge="end">
-                            {showSmtpPassword ? <VisibilityOff /> : <Visibility />}
-                          </IconButton>
-                        </InputAdornment>
-                      ),
-                    }}
-                  />
-                  <FormControlLabel
-                    control={
-                      <Switch checked={smtpUseTls} onChange={(e) => setSmtpUseTls(e.target.checked)} />
-                    }
-                    label="Sử dụng TLS"
-                  />
-                </>
-              )}
-
-              {(emailProvider === 'sendgrid' || emailProvider === 'resend') && (
-                <TextField
-                  label="API Key"
-                  type={showApiKey ? 'text' : 'password'}
-                  value={emailApiKey}
-                  onChange={(e) => setEmailApiKey(e.target.value)}
-                  placeholder={emailSettings?.api_key_masked || 'Nhập API key'}
-                  fullWidth
-                  helperText="Nhập API key mới để cập nhật, để trống nếu không muốn thay đổi"
-                  InputProps={{
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton onClick={() => setShowApiKey(!showApiKey)} edge="end">
-                          {showApiKey ? <VisibilityOff /> : <Visibility />}
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              )}
-
-              <Divider />
-
-              <TextField
-                label="Email gửi đi (From)"
-                value={fromEmail}
-                onChange={(e) => setFromEmail(e.target.value)}
-                placeholder="noreply@example.com"
-                fullWidth
-              />
-              <TextField
-                label="Tên hiển thị (From Name)"
-                value={fromName}
-                onChange={(e) => setFromName(e.target.value)}
-                placeholder="VM Portal"
-                fullWidth
-              />
-
-              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-                <Button
-                  variant="contained"
-                  onClick={handleSaveEmailSettings}
-                  disabled={loading}
-                >
-                  {loading ? 'Đang lưu...' : 'Lưu cài đặt Email'}
-                </Button>
-
-                <TextField
-                  label="Email test"
-                  value={testEmailAddress}
-                  onChange={(e) => setTestEmailAddress(e.target.value)}
-                  placeholder="test@example.com"
-                  size="small"
-                  sx={{ minWidth: 250 }}
-                />
-                <Button
-                  variant="outlined"
-                  startIcon={<EmailIcon />}
-                  onClick={handleTestEmail}
-                  disabled={emailTestLoading || !emailSettings?.is_configured}
-                >
-                  {emailTestLoading ? 'Đang gửi...' : 'Gửi email thử'}
-                </Button>
-              </Box>
-            </Stack>
-          </CardContent>
-        </Card>
-      )}
 
       {/* OS Templates */}
       <Card sx={{ mb: 3 }}>

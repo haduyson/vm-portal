@@ -30,6 +30,7 @@ from app.api import (
     network_bridges_public_router,
     user_ip_pool_router,
     admin_feature_flags_router,
+    admin_notification_templates_router,
 )
 
 
@@ -111,6 +112,7 @@ app.include_router(admin_network_bridge_router, prefix="/api")
 app.include_router(network_bridges_public_router, prefix="/api")
 app.include_router(user_ip_pool_router, prefix="/api")
 app.include_router(admin_feature_flags_router, prefix="/api")
+app.include_router(admin_notification_templates_router, prefix="/api")
 
 
 @app.get("/")

@@ -24,6 +24,7 @@ import AdminCloudflareSetupWizardPage from './pages/admin-cloudflare-setup-wizar
 import TwoFactorSetupPage from './pages/two-factor-setup-page';
 import AdminVmLandingConfigPage from './pages/admin-vm-landing-config-page';
 import UserIpPoolPage from './pages/user-ip-pool-page';
+import AdminNotificationConfigPage from './pages/admin-notification-config-page';
 
 interface ThemeContextType {
   mode: PaletteMode;
@@ -137,6 +138,7 @@ export default function App() {
                   <Route path="/admin/cloudflare-domains" element={<AdminCloudflareDomainsPage />} />
                   <Route path="/admin/cloudflare-setup" element={<AdminCloudflareSetupWizardPage />} />
                   <Route path="/admin/vm-landing-config" element={<AdminVmLandingConfigPage />} />
+                  <Route path="/admin/notifications" element={<AdminNotificationConfigPage />} />
                 </Route>
               </Route>
             </Route>
