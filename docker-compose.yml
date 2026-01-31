@@ -10,7 +10,8 @@ services:
       POSTGRES_DB: ${DB_NAME:-vmportal}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/init-database.sql:/docker-entrypoint-initdb.d/init.sql
+      # Schema created by SQLAlchemy on app startup
+      # - ./database/init-database.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
     healthcheck:

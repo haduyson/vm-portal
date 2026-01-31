@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     ALGORITHM: str = "HS256"
 
+    # Default Admin
+    DEFAULT_ADMIN_USERNAME: str = "Admin"
+    DEFAULT_ADMIN_PASSWORD: str = "Admin@123"
+
     # Proxmox
     PROXMOX_HOST: str = "localhost"
     PROXMOX_PORT: int = 8006

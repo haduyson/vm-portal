@@ -1,7 +1,12 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import create_tables
+from sqlalchemy import select
+from app.database import create_tables, AsyncSessionLocal
+# Import all models to register them with Base before create_tables()
+from app.models import User, VirtualMachine, AuditLog, SystemSetting, RefreshToken, ProxmoxServer, OsTemplate, CloudflareDomain  # noqa: F401
+from app.core.security import hash_password
+from app.config import settings
 from app.api import (
     auth_router,
     vm_router,
@@ -24,12 +29,37 @@ from app.api import (
 )
 
 
+async def create_default_admin():
+    """Create default admin user if not exists."""
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.username == settings.DEFAULT_ADMIN_USERNAME)
+        )
+        existing_user = result.scalar_one_or_none()
+
+        if not existing_user:
+            admin_user = User(
+                username=settings.DEFAULT_ADMIN_USERNAME,
+                hashed_password=hash_password(settings.DEFAULT_ADMIN_PASSWORD),
+                is_admin=True,
+                is_suspended=False
+            )
+            session.add(admin_user)
+            await session.commit()
+            print(f"Default admin user '{settings.DEFAULT_ADMIN_USERNAME}' created successfully")
+        else:
+            print(f"Admin user '{settings.DEFAULT_ADMIN_USERNAME}' already exists")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     print("Creating database tables...")
     await create_tables()
     print("Database tables created successfully")
+
+    print("Checking default admin user...")
+    await create_default_admin()
 
     yield
 

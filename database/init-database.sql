@@ -7,6 +7,13 @@ CREATE TABLE IF NOT EXISTS users (
     hashed_password VARCHAR(255) NOT NULL,
     telegram_chat_id VARCHAR(100),
     is_admin BOOLEAN DEFAULT FALSE,
+    is_suspended BOOLEAN DEFAULT FALSE,
+    max_disk_gb INTEGER,
+    max_ram_gb INTEGER,
+    max_vms INTEGER,
+    max_cpu_cores INTEGER,
+    totp_secret VARCHAR(255),
+    temp_password_expires_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
