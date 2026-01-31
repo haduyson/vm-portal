@@ -35,6 +35,7 @@ import {
   Storage as StorageIcon,
   Cloud as CloudIcon,
   Web as WebIcon,
+  Language as LanguageIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../hooks/use-auth-context';
 import { useThemeContext } from '../app';
@@ -72,6 +73,7 @@ export default function AppLayout() {
     { text: 'Tổng quan', icon: <DashboardIcon />, path: '/dashboard' },
     { text: 'Tạo máy ảo', icon: <AddCircleIcon />, path: '/vms/create' },
     { text: 'Danh sách VM', icon: <ListIcon />, path: '/vms' },
+    { text: 'IP Pool của tôi', icon: <LanguageIcon />, path: '/my-ips' },
     { text: 'Cài đặt tài khoản', icon: <PersonIcon />, path: '/profile' },
   ];
 

@@ -1,3 +1,4 @@
+import importlib
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,11 @@ from app.schemas.settings_schemas import (
 from app.services.system_settings_service import get_telegram_config, get_setting, set_setting
 from app.services.telegram_notifier import TelegramNotifier
 from app.api.admin_shared_helpers import log_audit
+
+_email_schemas = importlib.import_module("app.schemas.email-settings-schemas")
+EmailSettingsResponse = _email_schemas.EmailSettingsResponse
+EmailSettingsUpdate = _email_schemas.EmailSettingsUpdate
+EmailTestRequest = _email_schemas.EmailTestRequest
 
 router = APIRouter(prefix="/admin", tags=["admin-settings"])
 
@@ -187,3 +193,143 @@ async def test_telegram_settings(
         )
 
     return {"message": "Tin nhắn thử đã được gửi thành công"}
+
+
+# --- Email Settings Endpoints ---
+
+def _mask_password(password: str | None) -> str:
+    """Mask password showing only that it's set."""
+    if not password:
+        return ""
+    return "********"
+
+
+def _mask_api_key(api_key: str | None) -> str:
+    """Mask API key showing last 4 characters."""
+    if not api_key:
+        return ""
+    if len(api_key) <= 4:
+        return "****"
+    return "*" * (len(api_key) - 4) + api_key[-4:]
+
+
+@router.get("/settings/email", response_model=EmailSettingsResponse)
+async def get_email_settings(
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get email configuration (admin only). Masks sensitive fields."""
+    provider = await get_setting(session, "email_provider") or "smtp"
+    smtp_host = await get_setting(session, "email_smtp_host")
+    smtp_port_str = await get_setting(session, "email_smtp_port")
+    smtp_user = await get_setting(session, "email_smtp_user")
+    smtp_password = await get_setting(session, "email_smtp_password")
+    smtp_use_tls_str = await get_setting(session, "email_smtp_use_tls")
+    api_key = await get_setting(session, "email_api_key")
+    from_email = await get_setting(session, "email_from_address") or "noreply@example.com"
+    from_name = await get_setting(session, "email_from_name") or "VM Portal"
+
+    # Check if configured
+    is_configured = False
+    if provider == "smtp":
+        is_configured = bool(smtp_host and smtp_user)
+    else:
+        is_configured = bool(api_key)
+
+    return EmailSettingsResponse(
+        provider=provider,
+        smtp_host=smtp_host,
+        smtp_port=int(smtp_port_str) if smtp_port_str else 587,
+        smtp_user=smtp_user,
+        smtp_password_masked=_mask_password(smtp_password),
+        smtp_use_tls=smtp_use_tls_str != "false" if smtp_use_tls_str else True,
+        api_key_masked=_mask_api_key(api_key),
+        from_email=from_email,
+        from_name=from_name,
+        is_configured=is_configured,
+    )
+
+
+@router.put("/settings/email", response_model=EmailSettingsResponse)
+async def update_email_settings(
+    settings_update: EmailSettingsUpdate,
+    admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Update email configuration (admin only)."""
+    changes = []
+
+    if settings_update.provider is not None:
+        if settings_update.provider not in ("smtp", "sendgrid", "resend"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Provider phải là smtp, sendgrid, hoặc resend",
+            )
+        await set_setting(session, "email_provider", settings_update.provider)
+        changes.append(f"provider={settings_update.provider}")
+
+    if settings_update.smtp_host is not None:
+        await set_setting(session, "email_smtp_host", settings_update.smtp_host)
+        changes.append(f"smtp_host={settings_update.smtp_host}")
+
+    if settings_update.smtp_port is not None:
+        await set_setting(session, "email_smtp_port", str(settings_update.smtp_port))
+        changes.append(f"smtp_port={settings_update.smtp_port}")
+
+    if settings_update.smtp_user is not None:
+        await set_setting(session, "email_smtp_user", settings_update.smtp_user)
+        changes.append(f"smtp_user={settings_update.smtp_user}")
+
+    if settings_update.smtp_password is not None:
+        await set_setting(session, "email_smtp_password", settings_update.smtp_password)
+        changes.append("Updated smtp_password")
+
+    if settings_update.smtp_use_tls is not None:
+        await set_setting(session, "email_smtp_use_tls", "true" if settings_update.smtp_use_tls else "false")
+        changes.append(f"smtp_use_tls={settings_update.smtp_use_tls}")
+
+    if settings_update.api_key is not None:
+        await set_setting(session, "email_api_key", settings_update.api_key)
+        changes.append("Updated api_key")
+
+    if settings_update.from_email is not None:
+        await set_setting(session, "email_from_address", settings_update.from_email)
+        changes.append(f"from_email={settings_update.from_email}")
+
+    if settings_update.from_name is not None:
+        await set_setting(session, "email_from_name", settings_update.from_name)
+        changes.append(f"from_name={settings_update.from_name}")
+
+    if changes:
+        await log_audit(session, admin.id, "update_email_settings", "system", None, ", ".join(changes))
+
+    return await get_email_settings(_admin=admin, session=session)
+
+
+@router.post("/settings/email/test", status_code=status.HTTP_200_OK)
+async def send_test_email(
+    request: EmailTestRequest,
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Send a test email to verify configuration (admin only)."""
+    _notif_service = importlib.import_module("app.services.unified-notification-service")
+    NotificationService = _notif_service.NotificationService
+
+    notifier = await NotificationService.from_db_config(session)
+
+    if not notifier.email.is_configured():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email chưa được cấu hình. Vui lòng cấu hình SMTP hoặc API key trước.",
+        )
+
+    success = await notifier.send_test_email(request.to_email)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể gửi email. Vui lòng kiểm tra lại cấu hình.",
+        )
+
+    return {"message": f"Email thử đã được gửi đến {request.to_email}"}

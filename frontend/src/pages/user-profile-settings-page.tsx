@@ -14,6 +14,11 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Divider,
 } from '@mui/material';
 import { useAuth } from '../hooks/use-auth-context';
 import apiClient from '../services/api-client';
@@ -23,6 +28,8 @@ export default function UserProfileSettingsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [telegramChatId, setTelegramChatId] = useState(user?.telegram_chat_id || '');
+  const [email, setEmail] = useState(user?.email || '');
+  const [notificationPreference, setNotificationPreference] = useState(user?.notification_preference || 'telegram');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -46,6 +53,14 @@ export default function UserProfileSettingsPage() {
 
       if (telegramChatId !== (user?.telegram_chat_id || '')) {
         updateData.telegram_chat_id = telegramChatId;
+      }
+
+      if (email !== (user?.email || '')) {
+        updateData.email = email;
+      }
+
+      if (notificationPreference !== (user?.notification_preference || 'telegram')) {
+        updateData.notification_preference = notificationPreference;
       }
 
       if (newPassword) {
@@ -111,6 +126,10 @@ export default function UserProfileSettingsPage() {
               helperText="Không thể thay đổi tên đăng nhập"
             />
 
+            <Typography variant="h6" sx={{ mt: 2 }}>
+              Thông báo
+            </Typography>
+
             <TextField
               label="Telegram Chat ID"
               value={telegramChatId}
@@ -118,6 +137,30 @@ export default function UserProfileSettingsPage() {
               fullWidth
               helperText="ID chat Telegram để nhận thông báo"
             />
+
+            <TextField
+              label="Email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              fullWidth
+              helperText="Địa chỉ email để nhận thông báo"
+            />
+
+            <FormControl fullWidth>
+              <InputLabel>Phương thức thông báo</InputLabel>
+              <Select
+                value={notificationPreference}
+                label="Phương thức thông báo"
+                onChange={(e) => setNotificationPreference(e.target.value)}
+              >
+                <MenuItem value="telegram">Telegram</MenuItem>
+                <MenuItem value="email">Email</MenuItem>
+                <MenuItem value="both">Cả hai (Telegram + Email)</MenuItem>
+              </Select>
+            </FormControl>
+
+            <Divider sx={{ my: 2 }} />
 
             <Typography variant="h6" sx={{ mt: 2 }}>
               Đổi mật khẩu

@@ -1,12 +1,13 @@
 import asyncio
+import importlib
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.config import settings
 from app.models.virtual_machine_model import VirtualMachine
+from app.models.user_model import User
 from app.services.proxmox_client import ProxmoxService, create_proxmox_service, upload_cloud_init_to_proxmox
 from app.services.cloud_init_generator import CloudInitGenerator
-from app.services.telegram_notifier import TelegramNotifier
 from app.core.credential_encryption import decrypt_credential
 
 
@@ -28,7 +29,9 @@ class VMProvisioningService:
         self,
         vm_id: int,
         template_vmid: int,
-        user_telegram_chat_id: Optional[str] = None,
+        user_id: int,
+        net0: str = "virtio,bridge=vmbr0",
+        ipconfig0: str = "ip=dhcp",
     ):
         """
         Background task to provision a VM by cloning a cloud-init template.
@@ -95,9 +98,9 @@ class VMProvisioningService:
                     vm.vmid,
                     cores=vm.cores,
                     memory=vm.memory_mb,
-                    net0="virtio,bridge=vmbr0",  # Enable network adapter
+                    net0=net0,  # Network adapter with bridge/VLAN config
                     ide2=f"{vm.storage}:cloudinit",  # Cloud-init drive
-                    ipconfig0="ip=dhcp",  # DHCP for cloud-init network config
+                    ipconfig0=ipconfig0,  # DHCP or static IP for cloud-init
                     vga="std",  # Override serial console from template
                 )
 
@@ -137,7 +140,7 @@ class VMProvisioningService:
 
             # Start polling for VM readiness in background
             asyncio.create_task(
-                self._poll_vm_readiness(vm.id, vm.vmid, user_telegram_chat_id)
+                self._poll_vm_readiness(vm.id, vm.vmid, user_id)
             )
 
         except Exception as e:
@@ -151,9 +154,18 @@ class VMProvisioningService:
                     vm.status = "error"
                     await session.commit()
 
-                telegram = await TelegramNotifier.from_db_config(session)
-                await telegram.send_vm_error(
-                    user_telegram_chat_id,
+                # Get user for notification
+                user_result = await session.execute(
+                    select(User).where(User.id == user_id)
+                )
+                user = user_result.scalar_one_or_none()
+
+                # Send notification via unified service
+                _notif = importlib.import_module("app.services.unified-notification-service")
+                NotificationService = _notif.NotificationService
+                notifier = await NotificationService.from_db_config(session)
+                await notifier.notify_vm_error(
+                    user or str(user_id),
                     vm.name if vm else "Unknown",
                     str(e),
                 )
@@ -161,7 +173,7 @@ class VMProvisioningService:
     async def provision_vm(
         self,
         vm_id: int,
-        user_telegram_chat_id: Optional[str] = None,
+        user_id: int,
     ):
         """
         Background task to provision a VM.
@@ -214,7 +226,7 @@ class VMProvisioningService:
 
             # Start polling for VM readiness in background
             asyncio.create_task(
-                self._poll_vm_readiness(vm.id, vm.vmid, user_telegram_chat_id)
+                self._poll_vm_readiness(vm.id, vm.vmid, user_id)
             )
 
         except Exception as e:
@@ -228,9 +240,18 @@ class VMProvisioningService:
                     vm.status = "error"
                     await session.commit()
 
-                telegram = await TelegramNotifier.from_db_config(session)
-                await telegram.send_vm_error(
-                    user_telegram_chat_id,
+                # Get user for notification
+                user_result = await session.execute(
+                    select(User).where(User.id == user_id)
+                )
+                user = user_result.scalar_one_or_none()
+
+                # Send notification via unified service
+                _notif = importlib.import_module("app.services.unified-notification-service")
+                NotificationService = _notif.NotificationService
+                notifier = await NotificationService.from_db_config(session)
+                await notifier.notify_vm_error(
+                    user or str(user_id),
                     vm.name if vm else "Unknown",
                     str(e),
                 )
@@ -251,7 +272,7 @@ class VMProvisioningService:
         self,
         vm_id: int,
         vmid: int,
-        user_telegram_chat_id: Optional[str] = None,
+        user_id: int,
         max_attempts: int = 40,
     ):
         """
@@ -289,7 +310,7 @@ class VMProvisioningService:
                     # If IP is already available, skip to phase 2 completion
                     if status.get("ip_address"):
                         await self._complete_vm_setup(
-                            vm_id, vmid, status["ip_address"], user_telegram_chat_id
+                            vm_id, vmid, status["ip_address"], user_id
                         )
                         return
 
@@ -298,7 +319,7 @@ class VMProvisioningService:
 
         if not vm_is_running:
             # VM never started running
-            await self._mark_vm_error(vm_id, vmid, user_telegram_chat_id, "VM không thể khởi động")
+            await self._mark_vm_error(vm_id, vmid, user_id, "VM không thể khởi động")
             return
 
         # Phase 2: Wait for IP address (additional 20 attempts)
@@ -316,7 +337,7 @@ class VMProvisioningService:
 
                 if ip_address:
                     await self._complete_vm_setup(
-                        vm_id, vmid, ip_address, user_telegram_chat_id
+                        vm_id, vmid, ip_address, user_id
                     )
                     return
 
@@ -332,9 +353,9 @@ class VMProvisioningService:
         vm_id: int,
         vmid: int,
         ip_address: str,
-        user_telegram_chat_id: Optional[str] = None,
+        user_id: int,
     ):
-        """Complete VM setup with IP: update DB, setup CF tunnel, send notification."""
+        """Complete VM setup with IP: update DB, acquire IP if public, setup CF tunnel, send notification."""
         from app.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as session:
@@ -347,10 +368,35 @@ class VMProvisioningService:
                 vm.status = "running"
                 vm.ip_address = ip_address
 
+                # Acquire IP ownership if on public network bridge
+                if vm.network_bridge_id:
+                    try:
+                        _nb_model = importlib.import_module("app.models.network-bridge-model")
+                        NetworkBridge = _nb_model.NetworkBridge
+                        bridge_result = await session.execute(
+                            select(NetworkBridge).where(NetworkBridge.id == vm.network_bridge_id)
+                        )
+                        bridge = bridge_result.scalar_one_or_none()
+                        if bridge and bridge.is_public_network:
+                            _ip_service = importlib.import_module("app.services.user-ip-address-service")
+                            UserIpAddressService = _ip_service.UserIpAddressService
+
+                            # Acquire IP for user
+                            await UserIpAddressService.acquire_ip(
+                                session,
+                                user_id=vm.user_id,
+                                ip_address=ip_address,
+                                network_bridge_id=vm.network_bridge_id,
+                                vm_id=vm.id,
+                                gateway=None,  # Could be fetched from bridge config if stored
+                            )
+                            print(f"IP {ip_address} acquired for user {vm.user_id}")
+                    except Exception as ip_err:
+                        print(f"Warning: Failed to acquire IP ownership: {ip_err}")
+
                 # Setup Cloudflare tunnel for SSH and HTTP if subdomains are pre-set
                 if vm.ssh_domain or vm.web_domain:
                     try:
-                        import importlib
                         _cf_domain_model = importlib.import_module("app.models.cloudflare-domain-model")
                         CloudflareDomain = _cf_domain_model.CloudflareDomain
 
@@ -389,10 +435,18 @@ class VMProvisioningService:
 
                 await session.commit()
 
-                # Send Telegram notification
-                telegram = await TelegramNotifier.from_db_config(session)
-                await telegram.send_vm_ready(
-                    user_telegram_chat_id,
+                # Get user for notification
+                user_result = await session.execute(
+                    select(User).where(User.id == user_id)
+                )
+                user = user_result.scalar_one_or_none()
+
+                # Send notification via unified service (respects user preference)
+                _notif = importlib.import_module("app.services.unified-notification-service")
+                NotificationService = _notif.NotificationService
+                notifier = await NotificationService.from_db_config(session)
+                await notifier.notify_vm_ready(
+                    user,
                     vm.name,
                     ip_address,
                     vm.ssh_username or "unknown",
@@ -407,7 +461,7 @@ class VMProvisioningService:
         self,
         vm_id: int,
         vmid: int,
-        user_telegram_chat_id: Optional[str] = None,
+        user_id: int,
         error_message: str = "VM không thể khởi động sau nhiều lần thử",
     ):
         """Mark VM as error and send notification."""
@@ -423,9 +477,18 @@ class VMProvisioningService:
                 vm.status = "error"
                 await session.commit()
 
-            telegram = await TelegramNotifier.from_db_config(session)
-            await telegram.send_vm_error(
-                user_telegram_chat_id,
+            # Get user for notification
+            user_result = await session.execute(
+                select(User).where(User.id == user_id)
+            )
+            user = user_result.scalar_one_or_none()
+
+            # Send notification via unified service
+            _notif = importlib.import_module("app.services.unified-notification-service")
+            NotificationService = _notif.NotificationService
+            notifier = await NotificationService.from_db_config(session)
+            await notifier.notify_vm_error(
+                user or str(user_id),
                 vm.name if vm else f"VM {vmid}",
                 error_message,
             )

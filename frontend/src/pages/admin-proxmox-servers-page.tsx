@@ -32,6 +32,7 @@ import {
   Refresh,
   Visibility,
   VisibilityOff,
+  Lan,
 } from '@mui/icons-material';
 import apiClient from '../services/api-client';
 
@@ -77,6 +78,18 @@ interface ResourceData {
   disk_used_gb: number;
   disk_total_gb: number;
   disk_allocated_gb: number;
+}
+
+interface NetworkBridge {
+  id: number;
+  proxmox_server_id: number;
+  bridge_name: string;
+  display_name: string | null;
+  vlan_min: number | null;
+  vlan_max: number | null;
+  is_public_network: boolean;
+  is_enabled: boolean;
+  created_at: string;
 }
 
 export default function AdminProxmoxServersPage() {
@@ -327,6 +340,13 @@ export default function AdminProxmoxServersPage() {
   const [excludedStorages, setExcludedStorages] = useState<string[]>([]);
   const [savingExclusion, setSavingExclusion] = useState(false);
 
+  // Bridge management state
+  const [bridgeDialogOpen, setBridgeDialogOpen] = useState(false);
+  const [bridges, setBridges] = useState<NetworkBridge[]>([]);
+  const [loadingBridges, setLoadingBridges] = useState(false);
+  const [syncingBridges, setSyncingBridges] = useState(false);
+  const [savingBridge, setSavingBridge] = useState(false);
+
   const handleViewStorages = async (serverId: number) => {
     setCurrentServerId(serverId);
     setStorageDialogOpen(true);
@@ -385,6 +405,113 @@ export default function AdminProxmoxServersPage() {
     setStorageData([]);
     setCurrentServerId(null);
     setExcludedStorages([]);
+  };
+
+  // Bridge management handlers
+  const handleViewBridges = async (serverId: number) => {
+    setCurrentServerId(serverId);
+    setBridgeDialogOpen(true);
+    setLoadingBridges(true);
+    setBridges([]);
+
+    try {
+      const response = await apiClient.get(`/admin/proxmox-servers/${serverId}/bridges`);
+      setBridges(response.data);
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể tải danh sách bridges');
+      setBridgeDialogOpen(false);
+    } finally {
+      setLoadingBridges(false);
+    }
+  };
+
+  const handleSyncBridges = async () => {
+    if (!currentServerId) return;
+    setSyncingBridges(true);
+
+    try {
+      const response = await apiClient.post(`/admin/proxmox-servers/${currentServerId}/bridges/sync`);
+      setSuccessMessage(`Đã đồng bộ: ${response.data.added} bridge mới, tổng ${response.data.total} bridges`);
+      // Reload bridges
+      const bridgesResponse = await apiClient.get(`/admin/proxmox-servers/${currentServerId}/bridges`);
+      setBridges(bridgesResponse.data);
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể đồng bộ bridges');
+    } finally {
+      setSyncingBridges(false);
+    }
+  };
+
+  const handleToggleBridgeEnabled = async (bridge: NetworkBridge) => {
+    if (!currentServerId) return;
+    setSavingBridge(true);
+
+    try {
+      await apiClient.put(`/admin/proxmox-servers/${currentServerId}/bridges/${bridge.id}`, {
+        is_enabled: !bridge.is_enabled,
+      });
+      setBridges((prev) =>
+        prev.map((b) => (b.id === bridge.id ? { ...b, is_enabled: !b.is_enabled } : b))
+      );
+      setSuccessMessage(
+        bridge.is_enabled
+          ? `Đã tắt bridge "${bridge.bridge_name}"`
+          : `Đã bật bridge "${bridge.bridge_name}"`
+      );
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể cập nhật bridge');
+    } finally {
+      setSavingBridge(false);
+    }
+  };
+
+  const handleToggleBridgePublic = async (bridge: NetworkBridge) => {
+    if (!currentServerId) return;
+    setSavingBridge(true);
+
+    try {
+      await apiClient.put(`/admin/proxmox-servers/${currentServerId}/bridges/${bridge.id}`, {
+        is_public_network: !bridge.is_public_network,
+      });
+      setBridges((prev) =>
+        prev.map((b) => (b.id === bridge.id ? { ...b, is_public_network: !b.is_public_network } : b))
+      );
+      setSuccessMessage(
+        bridge.is_public_network
+          ? `Đã bỏ đánh dấu "${bridge.bridge_name}" là mạng public`
+          : `Đã đánh dấu "${bridge.bridge_name}" là mạng public`
+      );
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể cập nhật bridge');
+    } finally {
+      setSavingBridge(false);
+    }
+  };
+
+  const handleUpdateBridgeVlan = async (bridge: NetworkBridge, vlanMin: number | null, vlanMax: number | null) => {
+    if (!currentServerId) return;
+    setSavingBridge(true);
+
+    try {
+      await apiClient.put(`/admin/proxmox-servers/${currentServerId}/bridges/${bridge.id}`, {
+        vlan_min: vlanMin,
+        vlan_max: vlanMax,
+      });
+      setBridges((prev) =>
+        prev.map((b) => (b.id === bridge.id ? { ...b, vlan_min: vlanMin, vlan_max: vlanMax } : b))
+      );
+      setSuccessMessage(`Đã cập nhật VLAN range cho "${bridge.bridge_name}"`);
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể cập nhật VLAN range');
+    } finally {
+      setSavingBridge(false);
+    }
+  };
+
+  const handleCloseBridgeDialog = () => {
+    setBridgeDialogOpen(false);
+    setBridges([]);
+    setCurrentServerId(null);
   };
 
   const calculatePercentage = (used: number, total: number): number => {
@@ -449,20 +576,21 @@ export default function AdminProxmoxServersPage() {
               <TableCell>Trạng thái</TableCell>
               <TableCell align="center">Tài nguyên</TableCell>
               <TableCell align="center">Storages</TableCell>
+              <TableCell align="center">Bridges</TableCell>
               <TableCell align="right">Hành động</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {servers.length === 0 && !loading && (
               <TableRow>
-                <TableCell colSpan={7} align="center">
+                <TableCell colSpan={8} align="center">
                   <Typography color="text.secondary">Chưa có server nào</Typography>
                 </TableCell>
               </TableRow>
             )}
             {loading && (
               <TableRow>
-                <TableCell colSpan={7} align="center">
+                <TableCell colSpan={8} align="center">
                   <Typography color="text.secondary">Đang tải...</Typography>
                 </TableCell>
               </TableRow>
@@ -515,6 +643,17 @@ export default function AdminProxmoxServersPage() {
                     color="info"
                     variant="outlined"
                     onClick={() => handleViewStorages(server.id)}
+                    sx={{ cursor: 'pointer' }}
+                  />
+                </TableCell>
+                <TableCell align="center">
+                  <Chip
+                    icon={<Lan fontSize="small" />}
+                    label="Xem"
+                    size="small"
+                    color="secondary"
+                    variant="outlined"
+                    onClick={() => handleViewBridges(server.id)}
                     sx={{ cursor: 'pointer' }}
                   />
                 </TableCell>
@@ -921,6 +1060,138 @@ export default function AdminProxmoxServersPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseStorageDialog}>Đóng</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Bridge Management Dialog */}
+      <Dialog open={bridgeDialogOpen} onClose={handleCloseBridgeDialog} maxWidth="md" fullWidth>
+        <DialogTitle>
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            <Typography variant="h6">Quản lý Network Bridges</Typography>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<Refresh />}
+              onClick={handleSyncBridges}
+              disabled={syncingBridges}
+            >
+              {syncingBridges ? 'Đang đồng bộ...' : 'Sync từ Proxmox'}
+            </Button>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {loadingBridges && (
+            <Box py={3} textAlign="center">
+              <Typography color="text.secondary">Đang tải danh sách bridges...</Typography>
+            </Box>
+          )}
+          {!loadingBridges && bridges.length > 0 && (
+            <>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Bật/tắt "Cho phép tạo VM" để kiểm soát bridge nào người dùng có thể chọn khi tạo VM.
+                Đánh dấu "Public" cho mạng có IP public (dùng cho IP Pool).
+              </Alert>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Bridge</TableCell>
+                    <TableCell>Display Name</TableCell>
+                    <TableCell align="center">VLAN Range</TableCell>
+                    <TableCell align="center">Public Network</TableCell>
+                    <TableCell align="center">Cho phép tạo VM</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {bridges.map((bridge) => (
+                    <TableRow
+                      key={bridge.id}
+                      sx={{ opacity: bridge.is_enabled ? 1 : 0.6 }}
+                    >
+                      <TableCell>
+                        <Typography variant="body2" fontWeight="medium">
+                          {bridge.bridge_name}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary">
+                          {bridge.display_name || bridge.bridge_name}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
+                          <TextField
+                            size="small"
+                            type="number"
+                            placeholder="Min"
+                            value={bridge.vlan_min ?? ''}
+                            onChange={(e) => {
+                              const val = e.target.value ? parseInt(e.target.value) : null;
+                              setBridges((prev) =>
+                                prev.map((b) => (b.id === bridge.id ? { ...b, vlan_min: val } : b))
+                              );
+                            }}
+                            onBlur={() => handleUpdateBridgeVlan(bridge, bridge.vlan_min, bridge.vlan_max)}
+                            sx={{ width: 70 }}
+                            inputProps={{ min: 1, max: 4094 }}
+                          />
+                          <Typography variant="body2">-</Typography>
+                          <TextField
+                            size="small"
+                            type="number"
+                            placeholder="Max"
+                            value={bridge.vlan_max ?? ''}
+                            onChange={(e) => {
+                              const val = e.target.value ? parseInt(e.target.value) : null;
+                              setBridges((prev) =>
+                                prev.map((b) => (b.id === bridge.id ? { ...b, vlan_max: val } : b))
+                              );
+                            }}
+                            onBlur={() => handleUpdateBridgeVlan(bridge, bridge.vlan_min, bridge.vlan_max)}
+                            sx={{ width: 70 }}
+                            inputProps={{ min: 1, max: 4094 }}
+                          />
+                        </Stack>
+                      </TableCell>
+                      <TableCell align="center">
+                        <Switch
+                          checked={bridge.is_public_network}
+                          onChange={() => handleToggleBridgePublic(bridge)}
+                          disabled={savingBridge}
+                          color="warning"
+                        />
+                      </TableCell>
+                      <TableCell align="center">
+                        <Switch
+                          checked={bridge.is_enabled}
+                          onChange={() => handleToggleBridgeEnabled(bridge)}
+                          disabled={savingBridge}
+                          color="primary"
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </>
+          )}
+          {!loadingBridges && bridges.length === 0 && (
+            <Box py={3} textAlign="center">
+              <Typography color="text.secondary" gutterBottom>
+                Chưa có bridge nào được cấu hình
+              </Typography>
+              <Button
+                variant="contained"
+                onClick={handleSyncBridges}
+                disabled={syncingBridges}
+                sx={{ mt: 2 }}
+              >
+                {syncingBridges ? 'Đang đồng bộ...' : 'Sync bridges từ Proxmox'}
+              </Button>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseBridgeDialog}>Đóng</Button>
         </DialogActions>
       </Dialog>
     </Box>

@@ -1,5 +1,5 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import get_current_user
@@ -30,6 +30,14 @@ _cf_tunnel_mod = importlib.import_module("app.services.cloudflare-tunnel-service
 CloudflareTunnelService = _cf_tunnel_mod.CloudflareTunnelService
 _cf_domain_schemas = importlib.import_module("app.schemas.cloudflare-domain-schemas")
 CloudflareDomainPublicResponse = _cf_domain_schemas.CloudflareDomainPublicResponse
+
+_network_bridge_service = importlib.import_module("app.services.network-bridge-service")
+NetworkBridgeService = _network_bridge_service.NetworkBridgeService
+
+_network_config_generator = importlib.import_module("app.services.network-config-generator")
+generate_net0_config = _network_config_generator.generate_net0_config
+
+_network_bridge_schemas = importlib.import_module("app.schemas.network-bridge-schemas")
 
 router = APIRouter(prefix="/vms", tags=["virtual-machines"])
 proxmox_servers_public_router = APIRouter(tags=["proxmox-servers-public"])
@@ -269,10 +277,76 @@ async def create_vm(
 
         vmid = await provisioning_service.proxmox.get_next_vmid()
 
+        # Resolve network bridge
+        bridge = None
+        net0_config = "virtio,bridge=vmbr0"  # Default
+        if vm_data.network_bridge_id:
+            bridge = await NetworkBridgeService.get_bridge_by_id(session, vm_data.network_bridge_id)
+            if not bridge or not bridge.is_enabled:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Network bridge không hợp lệ hoặc đã bị vô hiệu",
+                )
+            # Validate bridge belongs to selected server
+            if bridge.proxmox_server_id != server_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Network bridge không thuộc server đã chọn",
+                )
+            # Validate VLAN tags within bridge restrictions
+            if vm_data.vlan_tags and bridge.vlan_min is not None and bridge.vlan_max is not None:
+                for tag in vm_data.vlan_tags:
+                    if not bridge.vlan_min <= tag <= bridge.vlan_max:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"VLAN {tag} ngoài phạm vi cho phép ({bridge.vlan_min}-{bridge.vlan_max})",
+                        )
+            net0_config = generate_net0_config(bridge.bridge_name, vm_data.vlan_tags)
+        elif server_id:
+            # Try to get default bridge for server
+            bridge = await NetworkBridgeService.get_default_bridge_for_server(session, server_id)
+            if bridge:
+                net0_config = generate_net0_config(bridge.bridge_name, vm_data.vlan_tags)
+
+        # Handle static IP from user's pool
+        static_ip_config = None
+        selected_ip_record = None
+        if vm_data.ip_pool_id:
+            _ip_service = importlib.import_module("app.services.user-ip-address-service")
+            UserIpAddressService = _ip_service.UserIpAddressService
+
+            selected_ip_record = await UserIpAddressService.get_ip_by_id(
+                session, vm_data.ip_pool_id, current_user.id
+            )
+            if not selected_ip_record:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="IP không tồn tại hoặc không thuộc về bạn",
+                )
+            if selected_ip_record.vm_id is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="IP đã được sử dụng bởi VM khác",
+                )
+            # Validate IP belongs to selected bridge
+            if bridge and selected_ip_record.network_bridge_id != bridge.id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="IP không thuộc bridge đã chọn",
+                )
+            # Generate static IP config for cloud-init
+            _ipconfig_gen = importlib.import_module("app.services.network-config-generator")
+            static_ip_config = _ipconfig_gen.generate_ipconfig0(
+                ip_address=selected_ip_record.ip_address,
+                subnet_mask=selected_ip_record.subnet_mask,
+                gateway=selected_ip_record.gateway,
+            )
+
         # Create VM record in database
         new_vm = VirtualMachine(
             user_id=current_user.id,
             proxmox_server_id=server_id,
+            network_bridge_id=bridge.id if bridge else None,
             vmid=vmid,
             name=vm_data.name,
             cores=vm_data.cores,
@@ -282,6 +356,7 @@ async def create_vm(
             status="creating",
             proxmox_node=node_name,
             storage=storage_name,
+            vlan_tags=vm_data.vlan_tags,
             ssh_domain=ssh_full_domain if vm_base_subdomain else None,
             web_domain=web_full_domain if vm_base_subdomain else None,
         )
@@ -290,20 +365,30 @@ async def create_vm(
         await session.commit()
         await session.refresh(new_vm)
 
+        # Assign static IP to new VM if selected
+        if selected_ip_record:
+            _ip_service = importlib.import_module("app.services.user-ip-address-service")
+            UserIpAddressService = _ip_service.UserIpAddressService
+            await UserIpAddressService.assign_ip_to_vm(session, selected_ip_record.id, new_vm.id)
+            await session.commit()
+
         # Start provisioning in background
+        ipconfig0 = static_ip_config or "ip=dhcp"
         if is_cloudinit and template_vmid:
             asyncio.create_task(
                 provisioning_service.provision_vm_cloudinit(
                     new_vm.id,
                     template_vmid=template_vmid,
-                    user_telegram_chat_id=current_user.telegram_chat_id,
+                    user_id=current_user.id,
+                    net0=net0_config,
+                    ipconfig0=ipconfig0,
                 )
             )
         else:
             asyncio.create_task(
                 provisioning_service.provision_vm(
                     new_vm.id,
-                    user_telegram_chat_id=current_user.telegram_chat_id,
+                    user_id=current_user.id,
                 )
             )
 
@@ -542,10 +627,11 @@ async def get_vm_resources(
 @router.delete("/{vm_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_vm(
     vm_id: int,
+    retain_ip: bool = Query(False, description="Giữ lại IP trong pool của bạn"),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Delete a VM (owner only)."""
+    """Delete a VM (owner only). Optionally retain public IP in user's pool."""
     result = await session.execute(
         select(VirtualMachine).where(VirtualMachine.id == vm_id)
     )
@@ -623,6 +709,16 @@ async def delete_vm(
 
             except Exception as cf_err:
                 print(f"Warning: Failed to cleanup CF tunnel: {cf_err}")
+
+        # Release IP with retain option
+        try:
+            _ip_service = importlib.import_module("app.services.user-ip-address-service")
+            UserIpAddressService = _ip_service.UserIpAddressService
+            await UserIpAddressService.release_ip(session, vm.id, retain=retain_ip)
+            if retain_ip:
+                print(f"IP retained in user pool for VM {vm.id}")
+        except Exception as ip_err:
+            print(f"Warning: Failed to release IP: {ip_err}")
 
         await session.delete(vm)
         await session.commit()
@@ -1083,6 +1179,60 @@ async def list_available_os_templates(
     return result.scalars().all()
 
 
+@proxmox_servers_public_router.get("/proxmox-servers/{server_id}/network-options")
+async def get_network_options(
+    server_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get available network bridges for VM creation."""
+    result = await session.execute(
+        select(ProxmoxServer).where(
+            ProxmoxServer.id == server_id,
+            ProxmoxServer.is_active == True,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Server không tồn tại hoặc không khả dụng",
+        )
+
+    bridges = await NetworkBridgeService.get_enabled_bridges_for_server(session, server_id)
+
+    # For each public bridge, get user's available IPs
+    _ip_service = importlib.import_module("app.services.user-ip-address-service")
+    UserIpAddressService = _ip_service.UserIpAddressService
+
+    bridge_list = []
+    for b in bridges:
+        bridge_data = {
+            "id": b.id,
+            "name": b.bridge_name,
+            "display_name": b.display_name or b.bridge_name,
+            "vlan_min": b.vlan_min,
+            "vlan_max": b.vlan_max,
+            "is_public_network": b.is_public_network,
+            "available_ips": [],
+        }
+        if b.is_public_network:
+            available_ips = await UserIpAddressService.get_user_available_ips(
+                session, current_user.id, b.id
+            )
+            bridge_data["available_ips"] = [
+                {
+                    "id": ip.id,
+                    "ip_address": ip.ip_address,
+                    "gateway": ip.gateway,
+                    "subnet_mask": ip.subnet_mask,
+                }
+                for ip in available_ips
+            ]
+        bridge_list.append(bridge_data)
+
+    return {"bridges": bridge_list}
+
+
 @proxmox_servers_public_router.get("/cloudflare-domains/available", response_model=List[CloudflareDomainPublicResponse])
 async def list_available_cloudflare_domains(
     current_user: User = Depends(get_current_user),
@@ -1175,3 +1325,108 @@ async def check_subdomain_availability(
         pass  # If CF check fails, still allow (will validate on create)
 
     return {"available": True, "domain": full_domain}
+
+
+# --- VM Feature Flags Endpoints ---
+
+_ff_service = importlib.import_module("app.services.feature-flag-resolution-service")
+FeatureFlagService = _ff_service.FeatureFlagService
+FEATURE_DEFAULTS = _ff_service.FEATURE_DEFAULTS
+
+_ff_schemas = importlib.import_module("app.schemas.feature-flag-schemas")
+FeatureFlagsUpdate = _ff_schemas.FeatureFlagsUpdate
+FeatureFlagsResponse = _ff_schemas.FeatureFlagsResponse
+
+
+@router.get("/{vm_id}/feature-flags", response_model=FeatureFlagsResponse)
+async def get_vm_feature_flags(
+    vm_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Get resolved feature flags for a VM."""
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+    if not vm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM not found")
+
+    if vm.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    global_flags = await FeatureFlagService.get_global_flags(session)
+    user_flags = current_user.feature_flags or {}
+    vm_flags = vm.feature_flags or {}
+
+    resolved = FeatureFlagService.resolve_all_flags(global_flags, user_flags, vm_flags)
+    sources = FeatureFlagService.get_all_sources(global_flags, user_flags, vm_flags)
+
+    return FeatureFlagsResponse(flags=resolved, sources=sources)
+
+
+@router.put("/{vm_id}/feature-flags", response_model=FeatureFlagsResponse)
+async def update_vm_feature_flags(
+    vm_id: int,
+    data: FeatureFlagsUpdate,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Update VM-level feature flags."""
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+    if not vm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM not found")
+
+    if vm.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    current = vm.feature_flags or {}
+    for key, value in data.model_dump(exclude_none=True).items():
+        current[key] = value
+
+    vm.feature_flags = current
+    await session.commit()
+
+    global_flags = await FeatureFlagService.get_global_flags(session)
+    user_flags = current_user.feature_flags or {}
+
+    resolved = FeatureFlagService.resolve_all_flags(global_flags, user_flags, current)
+    sources = FeatureFlagService.get_all_sources(global_flags, user_flags, current)
+
+    return FeatureFlagsResponse(flags=resolved, sources=sources)
+
+
+@router.delete("/{vm_id}/feature-flags/{feature}")
+async def reset_vm_feature_flag(
+    vm_id: int,
+    feature: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Remove VM-level override for a feature, inheriting from user/global."""
+    if feature not in FEATURE_DEFAULTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown feature: {feature}"
+        )
+
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+    if not vm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="VM not found")
+
+    if vm.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    current = vm.feature_flags or {}
+    if feature in current:
+        del current[feature]
+        vm.feature_flags = current
+        await session.commit()
+
+    return {"message": f"{feature} reset to inherit from user/global"}

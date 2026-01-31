@@ -26,6 +26,10 @@ from app.api import (
     admin_cloudflare_setup_router,
     ssh_console_websocket_router,
     admin_vm_landing_config_router,
+    admin_network_bridge_router,
+    network_bridges_public_router,
+    user_ip_pool_router,
+    admin_feature_flags_router,
 )
 
 
@@ -103,6 +107,10 @@ app.include_router(admin_cloudflare_domain_router, prefix="/api")
 app.include_router(admin_cloudflare_setup_router, prefix="/api")
 app.include_router(ssh_console_websocket_router, prefix="/api")
 app.include_router(admin_vm_landing_config_router, prefix="/api")
+app.include_router(admin_network_bridge_router, prefix="/api")
+app.include_router(network_bridges_public_router, prefix="/api")
+app.include_router(user_ip_pool_router, prefix="/api")
+app.include_router(admin_feature_flags_router, prefix="/api")
 
 
 @app.get("/")

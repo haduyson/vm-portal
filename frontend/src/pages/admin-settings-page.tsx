@@ -22,6 +22,10 @@ import {
   TableRow,
   Paper,
   Checkbox,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   Visibility,
@@ -30,6 +34,7 @@ import {
   Add as AddIcon,
   Delete as DeleteIcon,
   Search as SearchIcon,
+  Email as EmailIcon,
 } from '@mui/icons-material';
 import {
   Dialog,
@@ -50,6 +55,19 @@ interface AllSettings {
   telegram_default_chat_id: string | null;
   telegram_portal_url: string | null;
   telegram_source: string;
+}
+
+interface EmailSettings {
+  provider: string;
+  smtp_host: string | null;
+  smtp_port: number;
+  smtp_user: string | null;
+  smtp_password_masked: string;
+  smtp_use_tls: boolean;
+  api_key_masked: string;
+  from_email: string;
+  from_name: string;
+  is_configured: boolean;
 }
 
 interface OsTemplate {
@@ -95,9 +113,41 @@ export default function AdminSettingsPage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [osTemplates, setOsTemplates] = useState<OsTemplate[]>([]);
 
+  // Email settings state
+  const [emailSettings, setEmailSettings] = useState<EmailSettings | null>(null);
+  const [emailProvider, setEmailProvider] = useState('smtp');
+  const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState(587);
+  const [smtpUser, setSmtpUser] = useState('');
+  const [smtpPassword, setSmtpPassword] = useState('');
+  const [smtpUseTls, setSmtpUseTls] = useState(true);
+  const [emailApiKey, setEmailApiKey] = useState('');
+  const [fromEmail, setFromEmail] = useState('');
+  const [fromName, setFromName] = useState('');
+  const [showSmtpPassword, setShowSmtpPassword] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [emailTestLoading, setEmailTestLoading] = useState(false);
+
+  // Global feature flags state
+  interface FeatureFlags {
+    cloudflare_tunnel_enabled: boolean;
+    public_ip_enabled: boolean;
+    email_notifications_enabled: boolean;
+    telegram_notifications_enabled: boolean;
+  }
+  const [featureFlags, setFeatureFlags] = useState<FeatureFlags>({
+    cloudflare_tunnel_enabled: true,
+    public_ip_enabled: true,
+    email_notifications_enabled: true,
+    telegram_notifications_enabled: true,
+  });
+  const [testEmailAddress, setTestEmailAddress] = useState('');
+
   useEffect(() => {
     loadSettings();
     loadOsTemplates();
+    loadEmailSettings();
+    loadFeatureFlags();
   }, []);
 
   const loadSettings = async () => {
@@ -173,6 +223,99 @@ export default function AdminSettingsPage() {
       setOsTemplates(response.data);
     } catch {
       // OS templates not loaded - non-critical
+    }
+  };
+
+  const loadEmailSettings = async () => {
+    try {
+      const response = await apiClient.get('/admin/settings/email');
+      const data: EmailSettings = response.data;
+      setEmailSettings(data);
+      setEmailProvider(data.provider || 'smtp');
+      setSmtpHost(data.smtp_host || '');
+      setSmtpPort(data.smtp_port || 587);
+      setSmtpUser(data.smtp_user || '');
+      setSmtpUseTls(data.smtp_use_tls);
+      setFromEmail(data.from_email || '');
+      setFromName(data.from_name || '');
+    } catch {
+      // Email settings not loaded - non-critical
+    }
+  };
+
+  const handleSaveEmailSettings = async () => {
+    setLoading(true);
+    setSuccessMessage('');
+    setErrorMessage('');
+
+    try {
+      const payload: Record<string, string | number | boolean> = {
+        provider: emailProvider,
+        smtp_host: smtpHost,
+        smtp_port: smtpPort,
+        smtp_user: smtpUser,
+        smtp_use_tls: smtpUseTls,
+        from_email: fromEmail,
+        from_name: fromName,
+      };
+
+      if (smtpPassword.trim()) {
+        payload.smtp_password = smtpPassword.trim();
+      }
+      if (emailApiKey.trim()) {
+        payload.api_key = emailApiKey.trim();
+      }
+
+      await apiClient.put('/admin/settings/email', payload);
+      setSuccessMessage('Đã lưu cài đặt email thành công');
+      setSmtpPassword('');
+      setEmailApiKey('');
+      await loadEmailSettings();
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể lưu cài đặt email');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTestEmail = async () => {
+    if (!testEmailAddress.trim()) {
+      setErrorMessage('Vui lòng nhập địa chỉ email để test');
+      return;
+    }
+
+    setEmailTestLoading(true);
+    setSuccessMessage('');
+    setErrorMessage('');
+
+    try {
+      const response = await apiClient.post('/admin/settings/email/test', {
+        to_email: testEmailAddress.trim(),
+      });
+      setSuccessMessage(response.data.message || 'Đã gửi email thử thành công');
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể gửi email thử');
+    } finally {
+      setEmailTestLoading(false);
+    }
+  };
+
+  const loadFeatureFlags = async () => {
+    try {
+      const response = await apiClient.get('/admin/feature-flags/global');
+      setFeatureFlags(response.data.flags);
+    } catch {
+      // Feature flags not loaded - non-critical
+    }
+  };
+
+  const handleUpdateFeatureFlag = async (key: string, value: boolean) => {
+    try {
+      await apiClient.put('/admin/feature-flags/global', { [key]: value });
+      setFeatureFlags((prev) => ({ ...prev, [key]: value }));
+      setSuccessMessage('Đã cập nhật tính năng');
+    } catch (error: any) {
+      setErrorMessage(error.response?.data?.detail || 'Không thể cập nhật tính năng');
     }
   };
 
@@ -362,6 +505,70 @@ export default function AdminSettingsPage() {
         </CardContent>
       </Card>
 
+      {/* Global Feature Flags (3-level hierarchy) */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>Tính năng toàn cục (Global Flags)</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Cấu hình ở đây áp dụng cho tất cả users/VMs. Có thể override ở cấp User hoặc VM.
+          </Typography>
+          <Divider sx={{ mb: 2 }} />
+          <Stack spacing={2}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={featureFlags.cloudflare_tunnel_enabled}
+                  onChange={(e) => handleUpdateFeatureFlag('cloudflare_tunnel_enabled', e.target.checked)}
+                />
+              }
+              label="Cloudflare Tunnel"
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: -1 }}>
+              Cho phép tạo SSH subdomain qua Cloudflare Tunnel
+            </Typography>
+
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={featureFlags.public_ip_enabled}
+                  onChange={(e) => handleUpdateFeatureFlag('public_ip_enabled', e.target.checked)}
+                />
+              }
+              label="Public IP"
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: -1 }}>
+              Cho phép gán và giữ lại IP public
+            </Typography>
+
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={featureFlags.email_notifications_enabled}
+                  onChange={(e) => handleUpdateFeatureFlag('email_notifications_enabled', e.target.checked)}
+                />
+              }
+              label="Thông báo Email"
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: -1 }}>
+              Gửi thông báo qua email (VM ready, password reset, etc.)
+            </Typography>
+
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={featureFlags.telegram_notifications_enabled}
+                  onChange={(e) => handleUpdateFeatureFlag('telegram_notifications_enabled', e.target.checked)}
+                />
+              }
+              label="Thông báo Telegram"
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: -1 }}>
+              Gửi thông báo qua Telegram
+            </Typography>
+          </Stack>
+        </CardContent>
+      </Card>
+
       {/* Token Settings */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
@@ -455,6 +662,153 @@ export default function AdminSettingsPage() {
             >
               {testLoading ? 'Đang gửi...' : 'Gửi tin nhắn thử'}
             </Button>
+          </Stack>
+        </CardContent>
+      </Card>
+
+      {/* Email Settings */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography variant="h6">Cấu hình Email</Typography>
+            {emailSettings && (
+              <Chip
+                label={emailSettings.is_configured ? 'Đã cấu hình' : 'Chưa cấu hình'}
+                size="small"
+                color={emailSettings.is_configured ? 'success' : 'default'}
+              />
+            )}
+          </Box>
+          <Divider sx={{ mb: 2 }} />
+          <Stack spacing={3}>
+            <FormControl fullWidth>
+              <InputLabel>Nhà cung cấp</InputLabel>
+              <Select
+                value={emailProvider}
+                label="Nhà cung cấp"
+                onChange={(e) => setEmailProvider(e.target.value)}
+              >
+                <MenuItem value="smtp">SMTP</MenuItem>
+                <MenuItem value="sendgrid">SendGrid</MenuItem>
+                <MenuItem value="resend">Resend</MenuItem>
+              </Select>
+            </FormControl>
+
+            {emailProvider === 'smtp' && (
+              <>
+                <TextField
+                  label="SMTP Host"
+                  value={smtpHost}
+                  onChange={(e) => setSmtpHost(e.target.value)}
+                  placeholder="smtp.gmail.com"
+                  fullWidth
+                />
+                <TextField
+                  label="SMTP Port"
+                  type="number"
+                  value={smtpPort}
+                  onChange={(e) => setSmtpPort(parseInt(e.target.value) || 587)}
+                  fullWidth
+                  inputProps={{ min: 1, max: 65535 }}
+                />
+                <TextField
+                  label="SMTP Username"
+                  value={smtpUser}
+                  onChange={(e) => setSmtpUser(e.target.value)}
+                  placeholder="your-email@gmail.com"
+                  fullWidth
+                />
+                <TextField
+                  label="SMTP Password"
+                  type={showSmtpPassword ? 'text' : 'password'}
+                  value={smtpPassword}
+                  onChange={(e) => setSmtpPassword(e.target.value)}
+                  placeholder={emailSettings?.smtp_password_masked || 'Nhập mật khẩu SMTP'}
+                  fullWidth
+                  helperText="Nhập mật khẩu mới để cập nhật, để trống nếu không muốn thay đổi"
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton onClick={() => setShowSmtpPassword(!showSmtpPassword)} edge="end">
+                          {showSmtpPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+                <FormControlLabel
+                  control={
+                    <Switch checked={smtpUseTls} onChange={(e) => setSmtpUseTls(e.target.checked)} />
+                  }
+                  label="Sử dụng TLS"
+                />
+              </>
+            )}
+
+            {(emailProvider === 'sendgrid' || emailProvider === 'resend') && (
+              <TextField
+                label="API Key"
+                type={showApiKey ? 'text' : 'password'}
+                value={emailApiKey}
+                onChange={(e) => setEmailApiKey(e.target.value)}
+                placeholder={emailSettings?.api_key_masked || 'Nhập API key'}
+                fullWidth
+                helperText="Nhập API key mới để cập nhật, để trống nếu không muốn thay đổi"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => setShowApiKey(!showApiKey)} edge="end">
+                        {showApiKey ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            )}
+
+            <Divider />
+
+            <TextField
+              label="Email gửi đi (From)"
+              value={fromEmail}
+              onChange={(e) => setFromEmail(e.target.value)}
+              placeholder="noreply@example.com"
+              fullWidth
+            />
+            <TextField
+              label="Tên hiển thị (From Name)"
+              value={fromName}
+              onChange={(e) => setFromName(e.target.value)}
+              placeholder="VM Portal"
+              fullWidth
+            />
+
+            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Button
+                variant="contained"
+                onClick={handleSaveEmailSettings}
+                disabled={loading}
+              >
+                {loading ? 'Đang lưu...' : 'Lưu cài đặt Email'}
+              </Button>
+
+              <TextField
+                label="Email test"
+                value={testEmailAddress}
+                onChange={(e) => setTestEmailAddress(e.target.value)}
+                placeholder="test@example.com"
+                size="small"
+                sx={{ minWidth: 250 }}
+              />
+              <Button
+                variant="outlined"
+                startIcon={<EmailIcon />}
+                onClick={handleTestEmail}
+                disabled={emailTestLoading || !emailSettings?.is_configured}
+              >
+                {emailTestLoading ? 'Đang gửi...' : 'Gửi email thử'}
+              </Button>
+            </Box>
           </Stack>
         </CardContent>
       </Card>

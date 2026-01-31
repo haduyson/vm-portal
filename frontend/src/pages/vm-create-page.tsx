@@ -82,6 +82,23 @@ interface CloudflareDomainOption {
   is_active: boolean;
 }
 
+interface AvailableIpOption {
+  id: number;
+  ip_address: string;
+  gateway: string | null;
+  subnet_mask: string;
+}
+
+interface NetworkBridgeOption {
+  id: number;
+  name: string;
+  display_name: string;
+  vlan_min: number | null;
+  vlan_max: number | null;
+  is_public_network: boolean;
+  available_ips: AvailableIpOption[];
+}
+
 export default function VMCreatePage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -100,6 +117,14 @@ export default function VMCreatePage() {
   const [sshSubdomain, setSshSubdomain] = useState('');
   const [subdomainStatus, setSubdomainStatus] = useState<{ available?: boolean; reason?: string; domain?: string } | null>(null);
   const [subdomainChecking, setSubdomainChecking] = useState(false);
+  // Network bridge state
+  const [bridges, setBridges] = useState<NetworkBridgeOption[]>([]);
+  const [bridgesLoading, setBridgesLoading] = useState(false);
+  const [selectedBridgeId, setSelectedBridgeId] = useState<number | null>(null);
+  const [vlanTag, setVlanTag] = useState<string>('');
+  // IP source state
+  const [ipSource, setIpSource] = useState<'dhcp' | 'pool'>('dhcp');
+  const [selectedIpId, setSelectedIpId] = useState<number | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -140,6 +165,7 @@ export default function VMCreatePage() {
         });
         setSelectedServerId(best.id);
         fetchStorages(best.id);
+        fetchBridges(best.id);
       }
     } catch (error) {
       console.error('Error fetching servers:', error);
@@ -199,9 +225,32 @@ export default function VMCreatePage() {
     }
   };
 
+  const fetchBridges = async (serverId: number) => {
+    setBridgesLoading(true);
+    setBridges([]);
+    setSelectedBridgeId(null);
+    setVlanTag('');
+    setIpSource('dhcp');
+    setSelectedIpId(null);
+    try {
+      const response = await apiClient.get(`/proxmox-servers/${serverId}/network-options`);
+      const data: NetworkBridgeOption[] = response.data.bridges || [];
+      setBridges(data);
+      // Auto-select first bridge
+      if (data.length > 0) {
+        setSelectedBridgeId(data[0].id);
+      }
+    } catch (error) {
+      console.error('Error fetching bridges:', error);
+    } finally {
+      setBridgesLoading(false);
+    }
+  };
+
   const handleServerChange = (serverId: number) => {
     setSelectedServerId(serverId);
     fetchStorages(serverId);
+    fetchBridges(serverId);
   };
 
   const checkSubdomain = async (value: string) => {
@@ -247,6 +296,19 @@ export default function VMCreatePage() {
       }
       if (selectedStorage) {
         payload.storage = selectedStorage;
+      }
+      if (selectedBridgeId) {
+        payload.network_bridge_id = selectedBridgeId;
+      }
+      if (vlanTag.trim()) {
+        // Parse VLAN tags (comma-separated for trunk mode)
+        const tags = vlanTag.split(',').map(t => parseInt(t.trim())).filter(t => !isNaN(t) && t >= 1 && t <= 4094);
+        if (tags.length > 0) {
+          payload.vlan_tags = tags;
+        }
+      }
+      if (ipSource === 'pool' && selectedIpId) {
+        payload.ip_pool_id = selectedIpId;
       }
       if (sshSubdomain.trim()) {
         payload.ssh_subdomain = sshSubdomain.trim().toLowerCase();
@@ -410,6 +472,117 @@ export default function VMCreatePage() {
                 ))}
               </Select>
             </FormControl>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Network Bridge Selection */}
+      {bridgesLoading ? (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, my: 2 }}>
+          <CircularProgress size={20} />
+          <Typography>Đang tải danh sách network...</Typography>
+        </Box>
+      ) : bridges.length > 0 ? (
+        <Card sx={{ maxWidth: 600, mt: 2, mb: 2 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Cấu hình Mạng</Typography>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Network Bridge</InputLabel>
+              <Select
+                value={selectedBridgeId ?? ''}
+                label="Network Bridge"
+                onChange={(e) => {
+                  setSelectedBridgeId(Number(e.target.value));
+                  setVlanTag(''); // Reset VLAN when bridge changes
+                }}
+              >
+                {bridges.map((bridge) => (
+                  <MenuItem key={bridge.id} value={bridge.id}>
+                    <Box>
+                      <Typography variant="body1">
+                        {bridge.display_name}
+                        {bridge.is_public_network && (
+                          <Chip label="Public" size="small" color="warning" sx={{ ml: 1 }} />
+                        )}
+                      </Typography>
+                      {(bridge.vlan_min || bridge.vlan_max) && (
+                        <Typography variant="body2" color="text.secondary">
+                          VLAN: {bridge.vlan_min || 1} - {bridge.vlan_max || 4094}
+                        </Typography>
+                      )}
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {selectedBridgeId && (() => {
+              const selectedBridge = bridges.find(b => b.id === selectedBridgeId);
+              if (!selectedBridge) return null;
+              const hasVlanRestriction = selectedBridge.vlan_min !== null || selectedBridge.vlan_max !== null;
+              const hasAvailableIps = selectedBridge.is_public_network && selectedBridge.available_ips && selectedBridge.available_ips.length > 0;
+              return (
+                <>
+                  <TextField
+                    fullWidth
+                    label="VLAN Tag (tùy chọn)"
+                    value={vlanTag}
+                    onChange={(e) => setVlanTag(e.target.value)}
+                    helperText={
+                      hasVlanRestriction
+                        ? `Cho phép: ${selectedBridge.vlan_min || 1}-${selectedBridge.vlan_max || 4094}. Nhiều VLAN (trunk): 10,20,30`
+                        : 'Để trống nếu không cần VLAN. Nhiều VLAN (trunk): 10,20,30'
+                    }
+                    placeholder="VD: 100 hoặc 10,20,30"
+                    sx={{ mb: 2 }}
+                  />
+
+                  {/* IP Source Selection - only for public bridges */}
+                  {selectedBridge.is_public_network && (
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="subtitle2" gutterBottom>
+                        Nguồn IP
+                      </Typography>
+                      <RadioGroup
+                        row
+                        value={ipSource}
+                        onChange={(e) => {
+                          setIpSource(e.target.value as 'dhcp' | 'pool');
+                          if (e.target.value === 'dhcp') {
+                            setSelectedIpId(null);
+                          }
+                        }}
+                      >
+                        <FormControlLabel value="dhcp" control={<Radio />} label="DHCP (Tự động)" />
+                        <FormControlLabel
+                          value="pool"
+                          control={<Radio />}
+                          label={`IP của tôi (${selectedBridge.available_ips?.length || 0} khả dụng)`}
+                          disabled={!hasAvailableIps}
+                        />
+                      </RadioGroup>
+
+                      {ipSource === 'pool' && hasAvailableIps && (
+                        <FormControl fullWidth sx={{ mt: 1 }}>
+                          <InputLabel>Chọn IP</InputLabel>
+                          <Select
+                            value={selectedIpId ?? ''}
+                            label="Chọn IP"
+                            onChange={(e) => setSelectedIpId(Number(e.target.value))}
+                          >
+                            {selectedBridge.available_ips.map((ip) => (
+                              <MenuItem key={ip.id} value={ip.id}>
+                                {ip.ip_address} {ip.gateway ? `(GW: ${ip.gateway})` : ''}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      )}
+                    </Box>
+                  )}
+                </>
+              );
+            })()}
           </CardContent>
         </Card>
       ) : null}

@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timedelta
 from app.core.generate_random_password import generate_random_password
-from app.services.telegram_notifier import TelegramNotifier
+import importlib
 from app.services.system_settings_service import get_setting
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -191,7 +191,7 @@ async def update_profile(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Update own password and/or telegram_chat_id."""
+    """Update own password, telegram_chat_id, email, and notification_preference."""
     if profile_update.new_password:
         if not profile_update.current_password:
             raise HTTPException(
@@ -208,6 +208,12 @@ async def update_profile(
 
     if profile_update.telegram_chat_id is not None:
         current_user.telegram_chat_id = profile_update.telegram_chat_id
+
+    if profile_update.email is not None:
+        current_user.email = profile_update.email
+
+    if profile_update.notification_preference is not None:
+        current_user.notification_preference = profile_update.notification_preference
 
     await session.commit()
     await session.refresh(current_user)
@@ -259,19 +265,32 @@ async def forgot_password(
     request: ForgotPasswordRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Reset password and send new password via Telegram (public endpoint)."""
+    """Reset password and send via user's notification preference (Telegram/Email)."""
     result = await session.execute(
         select(User).where(User.username == request.username)
     )
     user = result.scalar_one_or_none()
 
     if not user:
-        return {"message": "Nếu tài khoản tồn tại và có liên kết Telegram, mật khẩu mới sẽ được gửi."}
+        return {"message": "Nếu tài khoản tồn tại và có phương thức liên lạc, mật khẩu mới sẽ được gửi."}
 
-    if not user.telegram_chat_id:
+    # Check if user has any notification method configured
+    pref = getattr(user, "notification_preference", None) or "telegram"
+    has_telegram = bool(user.telegram_chat_id)
+    has_email = bool(getattr(user, "email", None))
+
+    can_notify = False
+    if pref == "telegram" and has_telegram:
+        can_notify = True
+    elif pref == "email" and has_email:
+        can_notify = True
+    elif pref == "both" and (has_telegram or has_email):
+        can_notify = True
+
+    if not can_notify:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Tài khoản chưa liên kết Telegram. Vui lòng liên hệ quản trị viên.",
+            detail="Tài khoản chưa cấu hình phương thức thông báo. Vui lòng liên hệ quản trị viên.",
         )
 
     new_password = generate_random_password()
@@ -284,13 +303,13 @@ async def forgot_password(
 
     await session.commit()
 
-    telegram = await TelegramNotifier.from_db_config(session)
-    await telegram.send_password_reset(
-        user.telegram_chat_id, user.username, new_password,
-        expiry_minutes=expiry_minutes,
-    )
+    # Send via NotificationService (respects user preference)
+    _notif = importlib.import_module("app.services.unified-notification-service")
+    NotificationService = _notif.NotificationService
+    notifier = await NotificationService.from_db_config(session)
+    await notifier.notify_password_reset(user, new_password, expiry_minutes)
 
-    return {"message": "Mật khẩu mới đã được gửi qua Telegram."}
+    return {"message": "Mật khẩu mới đã được gửi qua phương thức thông báo của bạn."}
 
 
 # --- 2FA Setup/Enable/Disable endpoints ---

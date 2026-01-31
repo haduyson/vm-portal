@@ -33,6 +33,8 @@ class UserResponse(BaseModel):
     id: int
     username: str
     telegram_chat_id: Optional[str]
+    email: Optional[str] = None
+    notification_preference: str = "telegram"  # telegram | email | both
     is_admin: bool
     has_2fa: bool = False
     created_at: datetime
@@ -46,6 +48,8 @@ class UserResponse(BaseModel):
             id=user.id,
             username=user.username,
             telegram_chat_id=user.telegram_chat_id,
+            email=getattr(user, "email", None),
+            notification_preference=getattr(user, "notification_preference", None) or "telegram",
             is_admin=user.is_admin,
             has_2fa=bool(user.totp_secret),
             created_at=user.created_at,
@@ -63,6 +67,16 @@ class ProfileUpdate(BaseModel):
     current_password: Optional[str] = None
     new_password: Optional[str] = None
     telegram_chat_id: Optional[str] = None
+    email: Optional[str] = None
+    notification_preference: Optional[str] = None  # telegram | email | both
+
+    @field_validator('notification_preference')
+    @classmethod
+    def validate_notification_preference(cls, v: Optional[str]) -> Optional[str]:
+        """Validate notification preference."""
+        if v is not None and v not in ("telegram", "email", "both"):
+            raise ValueError('Notification preference must be telegram, email, or both')
+        return v
 
     @field_validator('new_password')
     @classmethod

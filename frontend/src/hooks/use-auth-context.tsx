@@ -6,6 +6,8 @@ interface UserInfo {
   username: string;
   is_admin: boolean;
   telegram_chat_id?: string | null;
+  email?: string | null;
+  notification_preference?: string;
   has_2fa?: boolean;
 }
 
@@ -34,6 +36,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             username: res.data.username,
             is_admin: res.data.is_admin,
             telegram_chat_id: res.data.telegram_chat_id,
+            email: res.data.email,
+            notification_preference: res.data.notification_preference,
             has_2fa: res.data.has_2fa,
           });
         })

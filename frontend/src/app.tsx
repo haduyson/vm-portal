@@ -23,6 +23,7 @@ import AdminCloudflareDomainsPage from './pages/admin-cloudflare-domains-page';
 import AdminCloudflareSetupWizardPage from './pages/admin-cloudflare-setup-wizard-page';
 import TwoFactorSetupPage from './pages/two-factor-setup-page';
 import AdminVmLandingConfigPage from './pages/admin-vm-landing-config-page';
+import UserIpPoolPage from './pages/user-ip-pool-page';
 
 interface ThemeContextType {
   mode: PaletteMode;
@@ -125,6 +126,7 @@ export default function App() {
                 <Route path="/vms/:id" element={<VMDetailPage />} />
                 <Route path="/vms" element={<VMListPage />} />
                 <Route path="/profile" element={<UserProfileSettingsPage />} />
+                <Route path="/my-ips" element={<UserIpPoolPage />} />
                 <Route path="/2fa/setup" element={<TwoFactorSetupPage />} />
                 <Route element={<AdminRoute />}>
                   <Route path="/admin/users" element={<AdminUserManagementPage />} />

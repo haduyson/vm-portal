@@ -24,12 +24,27 @@ class VMCreate(BaseModel):
     storage: Optional[str] = None
     ssh_subdomain: Optional[str] = None
     domain_id: Optional[int] = None
+    # Network config
+    network_bridge_id: Optional[int] = None  # Uses default bridge if None
+    vlan_tags: Optional[List[int]] = None  # Single VLAN or multiple (trunk)
+    # Static IP from user's pool
+    ip_pool_id: Optional[int] = None  # ID of UserIpAddress to use for static IP
+
+    @field_validator("vlan_tags")
+    @classmethod
+    def validate_vlan_tags(cls, v: Optional[List[int]]) -> Optional[List[int]]:
+        if v:
+            for tag in v:
+                if not 1 <= tag <= 4094:
+                    raise ValueError(f"VLAN tag phải từ 1-4094, nhận được {tag}")
+        return v
 
 
 class VMResponse(BaseModel):
     id: int
     user_id: int
     proxmox_server_id: Optional[int] = None
+    network_bridge_id: Optional[int] = None
     vmid: int
     name: str
     cores: int
@@ -44,6 +59,7 @@ class VMResponse(BaseModel):
     ssh_password: Optional[str]
     proxmox_node: str
     storage: str
+    vlan_tags: Optional[List[int]] = None
     created_at: datetime
     updated_at: datetime
 

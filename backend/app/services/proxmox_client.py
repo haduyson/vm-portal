@@ -497,6 +497,34 @@ class ProxmoxService:
 
         return await asyncio.to_thread(_get_isos)
 
+    async def get_network_bridges(self) -> list[dict]:
+        """Fetch network bridges from Proxmox node.
+        Returns list of bridge interfaces with VLAN-aware status.
+        """
+        def _get():
+            try:
+                interfaces = self.proxmox.nodes(self.node).network.get()
+                bridges = [
+                    {
+                        "iface": iface.get("iface"),
+                        "type": iface.get("type"),
+                        "address": iface.get("address"),
+                        "netmask": iface.get("netmask"),
+                        "gateway": iface.get("gateway"),
+                        "bridge_ports": iface.get("bridge_ports"),
+                        "bridge_vlan_aware": iface.get("bridge_vlan_aware", False),
+                        "autostart": iface.get("autostart", 0),
+                        "active": iface.get("active", 0),
+                    }
+                    for iface in interfaces
+                    if iface.get("type") == "bridge"
+                ]
+                return bridges
+            except Exception as e:
+                print(f"Error fetching bridges: {e}")
+                return []
+        return await asyncio.to_thread(_get)
+
 
 async def upload_cloud_init_to_proxmox(
     host: str,

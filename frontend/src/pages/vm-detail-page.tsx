@@ -25,6 +25,8 @@ import {
   Slider,
   Chip,
   Stack,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
 import {
   PlayArrow as PlayArrowIcon,
@@ -96,6 +98,9 @@ export default function VMDetailPage() {
   const [cloneDialog, setCloneDialog] = useState(false);
   const [cloneName, setCloneName] = useState('');
   const [cloneLoading, setCloneLoading] = useState(false);
+
+  // Delete state
+  const [retainIp, setRetainIp] = useState(false);
 
   // SSH Console state
   const [sshConsoleOpen, setSshConsoleOpen] = useState(false);
@@ -172,7 +177,7 @@ export default function VMDetailPage() {
   const handleDeleteVM = async () => {
     setActionLoading(true);
     try {
-      await apiClient.delete(`/vms/${id}`);
+      await apiClient.delete(`/vms/${id}`, { params: { retain_ip: retainIp } });
       setSnackbar({ open: true, message: 'VM đã được xóa thành công', severity: 'success' });
       setTimeout(() => navigate('/vms'), 1500);
     } catch (error: any) {
@@ -743,9 +748,21 @@ export default function VMDetailPage() {
           <DialogContentText>
             Bạn có chắc chắn muốn xóa VM "{vm.name}"? Hành động này không thể hoàn tác.
           </DialogContentText>
+          {vm.ip_address && (
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={retainIp}
+                  onChange={(e) => setRetainIp(e.target.checked)}
+                />
+              }
+              label={`Giữ lại IP ${vm.ip_address} trong pool của tôi`}
+              sx={{ mt: 2 }}
+            />
+          )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteDialog(false)} disabled={actionLoading}>Hủy</Button>
+          <Button onClick={() => { setDeleteDialog(false); setRetainIp(false); }} disabled={actionLoading}>Hủy</Button>
           <Button onClick={handleDeleteVM} color="error" variant="contained" disabled={actionLoading}>
             {actionLoading ? 'Đang xóa...' : 'Xóa'}
           </Button>
