@@ -4,39 +4,65 @@ Portal nội bộ tiếng Việt cho phép nhân viên tự khởi tạo máy �
 
 ## Tính năng chính
 
+### Quản lý VM
 - Tạo/Quản lý VM qua giao diện web tiếng Việt
 - VNC Console (mạng LAN) và SSH Console (web-based)
-- Hướng dẫn SSH từ Terminal/Termius với Cloudflare Tunnel
-- Thông báo qua Telegram khi VM sẵn sàng
+- Hỗ trợ nhiều Proxmox server
+- Cấu hình Network Bridge và VLAN cho mỗi server
 - Quản lý tài nguyên: CPU, RAM, Disk với quota
-- Quản lý user, audit logs cho Admin
-- Hỗ trợ nhiều Proxmox server và Cloudflare domains
-- Responsive design (mobile-friendly)
+- Chuyển đổi VM giữa các user (Admin)
+
+### Bảo mật
+- Xác thực hai yếu tố (2FA/TOTP)
+- JWT với Refresh Token
+- Feature Flags 3 cấp độ (Global → User → VM)
+- Audit logs cho mọi hoạt động
+
+### Mạng & IP
+- IP Pool cá nhân - giữ lại IP khi xóa VM
+- Tự động gán IP public cho VM mới
+- Cloudflare Tunnel cho SSH từ bên ngoài
+- Cấu hình VLAN trunking
+
+### Thông báo
+- Telegram Bot notifications
+- Email notifications (SMTP, SendGrid, Resend)
+- Tùy chỉnh nội dung thông báo theo template
+- Xem trước và reset template về mặc định
+
+### Quản trị
+- Quản lý người dùng với Feature Flags
+- Quản lý nhiều Proxmox server
+- Cloudflare Domains management
+- VM Landing Page tùy chỉnh
+- Dark/Light theme
 
 ## Kiến trúc hệ thống
 
 ```
-[React Frontend] → [Nginx:80] → [FastAPI Backend:8000] → [Proxmox VE API]
-                        ↓                ↓                      ↓
-                   [WebSocket]    [PostgreSQL:5432]       [VM + Cloud-init]
-                   (VNC/SSH)             ↓
-                                  [Telegram Bot API]
-                                         ↓
-                              [Cloudflare Tunnel] → [SSH từ bên ngoài]
+[React Frontend] → [Nginx:443/80] → [FastAPI Backend:8000] → [Proxmox VE API]
+       ↓                 ↓                   ↓                      ↓
+  [Dark/Light]      [SSL/TLS]         [PostgreSQL:5432]       [VM + Cloud-init]
+    Theme          [WebSocket]              ↓
+                   (VNC/SSH)         [Telegram Bot API]
+                                     [Email Provider]
+                                            ↓
+                                  [Cloudflare Tunnel] → [SSH từ bên ngoài]
 ```
 
 ## Stack công nghệ
 
 | Component | Technology |
 |-----------|-----------|
-| Backend | FastAPI (Python 3.12) |
-| Frontend | React + TypeScript + Vite + MUI |
+| Backend | FastAPI (Python 3.12), SQLAlchemy Async |
+| Frontend | React 18 + TypeScript + Vite + MUI v5 |
 | Database | PostgreSQL 16 |
-| Proxy | Nginx |
+| Proxy | Nginx (SSL/TLS support) |
 | Container | Docker Compose |
-| Hypervisor | Proxmox VE |
-| Notification | Telegram Bot API |
+| Hypervisor | Proxmox VE 7+ |
+| Notification | Telegram Bot + Email (SMTP/SendGrid/Resend) |
 | SSH Access | Cloudflare Tunnel |
+| Auth | JWT + 2FA (TOTP) |
 
 ---
 
@@ -46,7 +72,7 @@ Portal nội bộ tiếng Việt cho phép nhân viên tự khởi tạo máy �
 
 - Docker & Docker Compose v2+
 - Proxmox VE 7+ với API Token
-- Telegram Bot Token
+- Telegram Bot Token (tùy chọn)
 - Domain với Cloudflare (cho SSH từ bên ngoài)
 - Server có ít nhất 2GB RAM, 20GB disk
 
@@ -75,14 +101,18 @@ DATABASE_URL=postgresql+asyncpg://vmadmin:<mật_khẩu>@db:5432/vmportal
 # JWT Secret (tạo bằng: openssl rand -hex 32)
 SECRET_KEY=<chuỗi_ngẫu_nhiên_64_ký_tự>
 
-# Proxmox VE
+# Default Admin (tạo tự động khi khởi động)
+DEFAULT_ADMIN_USERNAME=admin
+DEFAULT_ADMIN_PASSWORD=<mật_khẩu_admin>
+
+# Proxmox VE (có thể cấu hình thêm qua Admin UI)
 PROXMOX_HOST=<IP_Proxmox>
 PROXMOX_TOKEN_NAME=automation
 PROXMOX_TOKEN_VALUE=<API_token_Proxmox>
 PROXMOX_NODE=pve
 PROXMOX_VM_STORAGE=local-lvm
 
-# Telegram
+# Telegram (tùy chọn - có thể cấu hình qua Admin UI)
 TELEGRAM_BOT_TOKEN=<bot_token>
 TELEGRAM_DEFAULT_CHAT_ID=<chat_id>
 ```
@@ -95,19 +125,7 @@ TELEGRAM_DEFAULT_CHAT_ID=<chat_id>
 4. **Bỏ tick "Privilege Separation"**
 5. Lưu Token Value vào `.env`
 
-### Bước 4: Tạo Telegram Bot
-
-1. Chat với **@BotFather** trên Telegram
-2. Gửi `/newbot`, đặt tên bot
-3. Lưu Bot Token vào `.env`
-4. Lấy Chat ID:
-   - Gửi tin nhắn cho bot
-   - Truy cập: `https://api.telegram.org/bot<TOKEN>/getUpdates`
-   - Tìm `"chat":{"id": <CHAT_ID>}`
-
-### Bước 5: Chuẩn bị VM Template trên Proxmox
-
-Tạo VM template với cloud-init để clone:
+### Bước 4: Chuẩn bị VM Template trên Proxmox
 
 ```bash
 # Download cloud image (ví dụ Ubuntu 22.04)
@@ -130,7 +148,7 @@ qm set 9000 --agent enabled=1
 qm template 9000
 ```
 
-### Bước 6: Khởi chạy
+### Bước 5: Khởi chạy
 
 ```bash
 docker-compose up -d
@@ -141,24 +159,92 @@ Kiểm tra logs:
 docker-compose logs -f
 ```
 
-### Bước 7: Tạo tài khoản Admin
+**Lưu ý:** Admin user sẽ được tạo tự động khi khởi động với thông tin từ `.env`.
 
-```bash
-# Đăng ký user đầu tiên
-curl -X POST http://localhost/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"YourSecurePassword123"}'
-
-# Cấp quyền Admin (vào PostgreSQL)
-docker-compose exec db psql -U vmadmin -d vmportal -c \
-  "UPDATE users SET is_admin = true WHERE username = 'admin';"
-```
-
-Truy cập: **http://localhost** hoặc **http://<server-ip>**
+Truy cập: **http://localhost** hoặc **https://localhost** (nếu có SSL)
 
 ---
 
-## Cấu hình Cloudflare Tunnel (SSH từ bên ngoài)
+## Cấu hình SSL/HTTPS (Tùy chọn)
+
+### Sử dụng Let's Encrypt
+
+1. Cài đặt certbot và tạo certificate
+2. Mount certificates vào nginx container
+3. Uncomment SSL config trong `nginx/nginx.conf`
+
+---
+
+## Menu chức năng
+
+### Menu User
+| Menu | Mô tả |
+|------|-------|
+| Tổng quan | Dashboard thống kê VM |
+| Tạo máy ảo | Form tạo VM mới |
+| Danh sách VM | Quản lý VM của user |
+| IP Pool của tôi | Quản lý IP public đã sở hữu |
+| Cài đặt tài khoản | Đổi mật khẩu, 2FA, Telegram |
+
+### Menu Admin
+| Menu | Mô tả |
+|------|-------|
+| Quản lý người dùng | CRUD users, Feature Flags per user |
+| Tất cả VM | Xem/quản lý tất cả VM trong hệ thống |
+| Nhật ký hoạt động | Audit logs |
+| Server Proxmox | Quản lý nhiều Proxmox server |
+| Cloudflare Domains | Cấu hình domains cho SSH tunnel |
+| Landing Page VM | Tùy chỉnh trang landing cho VM |
+| Cấu hình Thông Báo | Telegram/Email settings & templates |
+| Cài đặt hệ thống | Feature toggles, OS templates, Global flags |
+
+---
+
+## Tính năng chi tiết
+
+### Two-Factor Authentication (2FA)
+
+1. Vào **Cài đặt tài khoản → Thiết lập 2FA**
+2. Quét QR code bằng app Authenticator (Google, Authy, etc.)
+3. Nhập mã xác nhận để kích hoạt
+4. Mỗi lần đăng nhập sẽ yêu cầu mã TOTP
+
+### IP Pool Management
+
+- Khi tạo VM, IP sẽ thuộc sở hữu của user
+- Khi xóa VM, có tùy chọn **"Giữ lại IP"**
+- IP đã giữ có thể gán cho VM mới
+- Xem tất cả IP của mình tại **IP Pool của tôi**
+
+### Feature Flags (3 cấp độ)
+
+| Cấp độ | Mô tả |
+|--------|-------|
+| Global | Áp dụng cho toàn hệ thống |
+| User | Override cho từng user |
+| VM | Override cho từng VM |
+
+**Các flags:**
+- `cloudflare_tunnel_enabled` - Cho phép tạo SSH subdomain
+- `public_ip_enabled` - Cho phép dùng IP public
+- `email_notifications_enabled` - Gửi thông báo email
+- `telegram_notifications_enabled` - Gửi thông báo Telegram
+
+### Notification Templates
+
+Tùy chỉnh nội dung thông báo với các biến:
+- `{{vm_name}}` - Tên VM
+- `{{ip_address}}` - Địa chỉ IP
+- `{{username}}` - Username SSH
+- `{{password}}` - Password SSH
+- `{{ssh_command}}` - Lệnh SSH
+- `{{portal_url}}` - URL portal
+
+Hỗ trợ events: `vm_ready`, `vm_error`, `password_reset`
+
+---
+
+## Cấu hình Cloudflare Tunnel
 
 ### Trên Server
 
@@ -182,31 +268,11 @@ cloudflared tunnel login
 cloudflared tunnel create vpscloud
 ```
 
-4. **Tạo file config `/etc/cloudflared/config.yml`:**
-
-```yaml
-tunnel: <TUNNEL_ID>
-credentials-file: /root/.cloudflared/<TUNNEL_ID>.json
-ingress:
-  - service: http_status:404
-```
-
-5. **Cài đặt service:**
-
-```bash
-cloudflared service install
-systemctl enable cloudflared
-systemctl start cloudflared
-```
-
-6. **Cấu hình trong Portal:**
+4. **Cấu hình trong Portal:**
    - Admin → Cloudflare Domains → Thêm domain
    - Điền: Domain, API Token, Zone ID, Tunnel ID
 
-Portal sẽ tự động:
-- Tạo DNS CNAME cho mỗi VM
-- Thêm ingress rule vào cloudflared config
-- Restart cloudflared service
+Portal sẽ tự động tạo DNS CNAME và cấu hình tunnel cho mỗi VM.
 
 ---
 
@@ -215,16 +281,21 @@ Portal sẽ tự động:
 ### Tạo VM
 
 1. Đăng nhập Portal
-2. **Dashboard → "Tạo máy ảo mới"** hoặc **Danh sách VM → "Tạo máy ảo"**
-3. Nhập tên, chọn CPU/RAM/Disk/OS Template
+2. **Tạo máy ảo** hoặc **Dashboard → "Tạo máy ảo mới"**
+3. Chọn:
+   - Tên VM
+   - Server Proxmox
+   - CPU/RAM/Disk
+   - OS Template
+   - Network Bridge (nếu có)
 4. Bấm **"Khởi tạo máy"**
 5. Chờ VM provisioning (1-3 phút)
-6. Nhận thông tin SSH qua Telegram
+6. Nhận thông tin SSH qua Telegram/Email
 
 ### Kết nối SSH
 
 **Cách 1: Web SSH Console (khuyến nghị)**
-- Tab Console → SSH Console
+- Vào chi tiết VM → Tab Console → SSH Console
 
 **Cách 2: Terminal với cloudflared**
 ```bash
@@ -252,14 +323,13 @@ vm-portal/
 ├── backend/                 # FastAPI backend
 │   ├── app/
 │   │   ├── api/             # API endpoints
-│   │   ├── core/            # Security (JWT, bcrypt)
+│   │   ├── core/            # Security (JWT, bcrypt, 2FA)
 │   │   ├── models/          # SQLAlchemy models
 │   │   ├── schemas/         # Pydantic schemas
 │   │   ├── services/        # Business logic
 │   │   ├── config.py
 │   │   ├── database.py
 │   │   └── main.py
-│   ├── alembic/             # Database migrations
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/                # React frontend
@@ -272,7 +342,6 @@ vm-portal/
 │   ├── package.json
 │   └── Dockerfile
 ├── nginx/                   # Reverse proxy config
-├── database/                # DB init scripts
 ├── docker-compose.yml
 ├── .env.example
 └── README.md
@@ -282,18 +351,35 @@ vm-portal/
 
 ## API Endpoints
 
+### Authentication
 | Method | Path | Mô tả |
 |--------|------|-------|
 | POST | /api/auth/register | Đăng ký tài khoản |
 | POST | /api/auth/login | Đăng nhập, nhận JWT |
+| POST | /api/auth/refresh | Refresh access token |
 | GET | /api/auth/me | Thông tin user hiện tại |
+| POST | /api/auth/2fa/setup | Thiết lập 2FA |
+| POST | /api/auth/2fa/verify | Xác thực 2FA |
+
+### VM Management
+| Method | Path | Mô tả |
+|--------|------|-------|
 | POST | /api/vms/ | Tạo VM mới |
 | GET | /api/vms/ | Danh sách VM của user |
 | GET | /api/vms/{id} | Chi tiết VM |
 | POST | /api/vms/{id}/start | Khởi động VM |
 | POST | /api/vms/{id}/stop | Dừng VM |
+| POST | /api/vms/{id}/restart | Restart VM |
 | DELETE | /api/vms/{id} | Xóa VM |
-| GET | /api/health | Health check |
+
+### Admin Endpoints
+| Method | Path | Mô tả |
+|--------|------|-------|
+| GET | /api/admin/users | Danh sách users |
+| GET | /api/admin/vms | Tất cả VMs |
+| GET | /api/admin/audit-logs | Nhật ký hoạt động |
+| GET | /api/admin/proxmox-servers | Danh sách Proxmox servers |
+| GET | /api/admin/feature-flags/global | Global feature flags |
 
 ---
 
@@ -329,6 +415,10 @@ npm run dev
 - Kiểm tra: `systemctl status cloudflared`
 - Xem config: `cat /etc/cloudflared/config.yml`
 
+**2FA không hoạt động:**
+- Đảm bảo thời gian server đồng bộ (NTP)
+- Kiểm tra timezone của app Authenticator
+
 ---
 
 ---
@@ -339,14 +429,38 @@ Internal Vietnamese-language portal allowing employees to self-provision virtual
 
 ## Key Features
 
+### VM Management
 - Create/Manage VMs via Vietnamese web interface
 - VNC Console (LAN) and SSH Console (web-based)
-- SSH guide for Terminal/Termius via Cloudflare Tunnel
-- Telegram notifications when VM is ready
-- Resource management: CPU, RAM, Disk with quotas
-- User management, audit logs for Admin
-- Multi Proxmox server and Cloudflare domain support
-- Responsive design (mobile-friendly)
+- Multi Proxmox server support
+- Network Bridge and VLAN configuration
+- Resource quotas: CPU, RAM, Disk
+- VM transfer between users (Admin)
+
+### Security
+- Two-Factor Authentication (2FA/TOTP)
+- JWT with Refresh Token
+- 3-level Feature Flags (Global → User → VM)
+- Audit logs for all activities
+
+### Networking & IP
+- Personal IP Pool - retain IP when deleting VM
+- Auto-assign public IP for new VMs
+- Cloudflare Tunnel for external SSH
+- VLAN trunking support
+
+### Notifications
+- Telegram Bot notifications
+- Email notifications (SMTP, SendGrid, Resend)
+- Customizable notification templates
+- Template preview and reset to default
+
+### Administration
+- User management with per-user Feature Flags
+- Multi Proxmox server management
+- Cloudflare Domains management
+- Custom VM Landing Page
+- Dark/Light theme toggle
 
 ## Quick Start
 
@@ -354,7 +468,7 @@ Internal Vietnamese-language portal allowing employees to self-provision virtual
 
 - Docker & Docker Compose v2+
 - Proxmox VE 7+ with API Token
-- Telegram Bot Token
+- Telegram Bot Token (optional)
 - Domain with Cloudflare (for external SSH)
 
 ### Installation
@@ -370,18 +484,11 @@ cp .env.example .env
 
 # Run
 docker-compose up -d
-
-# Create admin user
-curl -X POST http://localhost/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"YourSecurePassword123"}'
-
-# Grant admin privileges
-docker-compose exec db psql -U vmadmin -d vmportal -c \
-  "UPDATE users SET is_admin = true WHERE username = 'admin';"
 ```
 
-Access: **http://localhost**
+**Note:** Admin user is created automatically on startup using credentials from `.env`.
+
+Access: **http://localhost** or **https://localhost** (with SSL)
 
 ### Environment Variables
 
@@ -391,13 +498,12 @@ Access: **http://localhost**
 | DB_PASSWORD | PostgreSQL password |
 | DATABASE_URL | Full database connection string |
 | SECRET_KEY | JWT signing key (64 chars) |
+| DEFAULT_ADMIN_USERNAME | Auto-created admin username |
+| DEFAULT_ADMIN_PASSWORD | Auto-created admin password |
 | PROXMOX_HOST | Proxmox server IP |
 | PROXMOX_TOKEN_NAME | API token name |
 | PROXMOX_TOKEN_VALUE | API token value |
-| PROXMOX_NODE | Proxmox node name |
-| PROXMOX_VM_STORAGE | Storage for VMs |
-| TELEGRAM_BOT_TOKEN | Telegram bot token |
-| TELEGRAM_DEFAULT_CHAT_ID | Default notification chat |
+| TELEGRAM_BOT_TOKEN | Telegram bot token (optional) |
 
 ### SSH Access (External)
 
@@ -406,7 +512,6 @@ Access: **http://localhost**
 
 **Option 2: Terminal with cloudflared**
 ```bash
-# Install cloudflared first
 ssh -o ProxyCommand="cloudflared access ssh --hostname %h" root@vm-xxx.domain.com
 ```
 
