@@ -48,10 +48,12 @@ services:
       - apparmor:unconfined
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./frontend/dist:/usr/share/nginx/html:ro
       - ./nginx/html:/usr/share/nginx/static:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - api
 
