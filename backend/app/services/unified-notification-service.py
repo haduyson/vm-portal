@@ -14,21 +14,44 @@ class NotificationService:
         telegram: TelegramNotifier,
         email,  # EmailService
         portal_url: str = "",
+        global_flags: Optional[Dict] = None,
     ):
         self.telegram = telegram
         self.email = email
         self.portal_url = portal_url or telegram.portal_url
+        self.global_flags = global_flags or {}
 
     @classmethod
     async def from_db_config(cls, session: AsyncSession) -> "NotificationService":
         """Create NotificationService from database settings."""
         _email_mod = importlib.import_module("app.services.email-notification-service")
         EmailService = _email_mod.EmailService
+        _ff_service = importlib.import_module("app.services.feature-flag-resolution-service")
+        FeatureFlagService = _ff_service.FeatureFlagService
 
         telegram = await TelegramNotifier.from_db_config(session)
         email = await EmailService.from_db_config(session)
+        global_flags = await FeatureFlagService.get_global_flags(session)
 
-        return cls(telegram=telegram, email=email, portal_url=telegram.portal_url)
+        return cls(telegram=telegram, email=email, portal_url=telegram.portal_url, global_flags=global_flags)
+
+    def _is_telegram_enabled(self, user) -> bool:
+        """Check if telegram notifications enabled for user."""
+        user_flags = getattr(user, "feature_flags", None) or {}
+        if "telegram_notifications_enabled" in user_flags:
+            return bool(user_flags["telegram_notifications_enabled"])
+        if "telegram_notifications_enabled" in self.global_flags:
+            return bool(self.global_flags["telegram_notifications_enabled"])
+        return True  # Default enabled
+
+    def _is_email_enabled(self, user) -> bool:
+        """Check if email notifications enabled for user."""
+        user_flags = getattr(user, "feature_flags", None) or {}
+        if "email_notifications_enabled" in user_flags:
+            return bool(user_flags["email_notifications_enabled"])
+        if "email_notifications_enabled" in self.global_flags:
+            return bool(self.global_flags["email_notifications_enabled"])
+        return True  # Default enabled
 
     async def notify_vm_ready(
         self,
@@ -47,16 +70,16 @@ class NotificationService:
         results = {"telegram": False, "email": False}
         pref = getattr(user, "notification_preference", None) or "telegram"
 
-        # Send via Telegram
-        if pref in ("telegram", "both"):
+        # Send via Telegram (if feature enabled)
+        if pref in ("telegram", "both") and self._is_telegram_enabled(user):
             chat_id = getattr(user, "telegram_chat_id", None)
             if chat_id:
                 results["telegram"] = await self.telegram.send_vm_ready(
                     chat_id, vm_name, ip, username, password, ssh_domain, web_domain
                 )
 
-        # Send via Email
-        if pref in ("email", "both"):
+        # Send via Email (if feature enabled)
+        if pref in ("email", "both") and self._is_email_enabled(user):
             user_email = getattr(user, "email", None)
             if user_email and self.email.is_configured():
                 text, html = EmailTemplates.vm_ready(
@@ -86,14 +109,14 @@ class NotificationService:
 
         pref = getattr(user, "notification_preference", None) or "telegram"
 
-        # Send via Telegram
-        if pref in ("telegram", "both"):
+        # Send via Telegram (if feature enabled)
+        if pref in ("telegram", "both") and self._is_telegram_enabled(user):
             chat_id = getattr(user, "telegram_chat_id", None)
             if chat_id:
                 results["telegram"] = await self.telegram.send_vm_error(chat_id, vm_name, error)
 
-        # Send via Email
-        if pref in ("email", "both"):
+        # Send via Email (if feature enabled)
+        if pref in ("email", "both") and self._is_email_enabled(user):
             user_email = getattr(user, "email", None)
             if user_email and self.email.is_configured():
                 text, html = EmailTemplates.vm_error(vm_name, error, self.portal_url)
@@ -115,16 +138,16 @@ class NotificationService:
         pref = getattr(user, "notification_preference", None) or "telegram"
         username = getattr(user, "username", "unknown")
 
-        # Send via Telegram
-        if pref in ("telegram", "both"):
+        # Send via Telegram (if feature enabled)
+        if pref in ("telegram", "both") and self._is_telegram_enabled(user):
             chat_id = getattr(user, "telegram_chat_id", None)
             if chat_id:
                 results["telegram"] = await self.telegram.send_password_reset(
                     chat_id, username, new_password, expiry_minutes
                 )
 
-        # Send via Email
-        if pref in ("email", "both"):
+        # Send via Email (if feature enabled)
+        if pref in ("email", "both") and self._is_email_enabled(user):
             user_email = getattr(user, "email", None)
             if user_email and self.email.is_configured():
                 text, html = EmailTemplates.password_reset(
