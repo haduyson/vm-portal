@@ -15,7 +15,7 @@ from app.schemas.admin_schemas import (
     AdminPasswordResetResponse,
     UserResourceUsageResponse,
 )
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.core.generate_random_password import generate_random_password
 from app.services.telegram_notifier import TelegramNotifier
 from app.services.system_settings_service import get_setting
@@ -234,7 +234,7 @@ async def reset_user_password(
     # Set temp password expiry
     expiry_val = await get_setting(session, "temp_password_expiry_minutes")
     expiry_minutes = int(expiry_val) if expiry_val else 60
-    user.temp_password_expires_at = datetime.utcnow() + timedelta(minutes=expiry_minutes)
+    user.temp_password_expires_at = datetime.now(timezone.utc) + timedelta(minutes=expiry_minutes)
 
     await session.commit()
 

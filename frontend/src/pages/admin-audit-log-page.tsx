@@ -98,23 +98,23 @@ export default function AdminAuditLogPage() {
         </Alert>
       )}
 
-      <TableContainer component={Paper} sx={{ mt: 2 }}>
-        <Table>
+      <TableContainer component={Paper} sx={{ mt: 2, overflowX: 'auto' }}>
+        <Table sx={{ minWidth: 650 }}>
           <TableHead>
             <TableRow>
-              <TableCell>ID</TableCell>
+              <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>ID</TableCell>
               <TableCell>Admin</TableCell>
               <TableCell>Hành động</TableCell>
-              <TableCell>Loại đối tượng</TableCell>
-              <TableCell>ID đối tượng</TableCell>
-              <TableCell>Chi tiết</TableCell>
+              <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Loại đối tượng</TableCell>
+              <TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>ID đối tượng</TableCell>
+              <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Chi tiết</TableCell>
               <TableCell>Thời gian</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {paginatedLogs.map((log) => (
               <TableRow key={log.id} hover>
-                <TableCell>{log.id}</TableCell>
+                <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>{log.id}</TableCell>
                 <TableCell>{log.admin_username}</TableCell>
                 <TableCell>
                   <Chip
@@ -123,11 +123,16 @@ export default function AdminAuditLogPage() {
                     size="small"
                   />
                 </TableCell>
-                <TableCell>{log.target_type}</TableCell>
-                <TableCell>{log.target_id || '-'}</TableCell>
-                <TableCell>{log.details || '-'}</TableCell>
+                <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>{log.target_type}</TableCell>
+                <TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>{log.target_id || '-'}</TableCell>
+                <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>{log.details || '-'}</TableCell>
                 <TableCell>
-                  {new Date(log.created_at).toLocaleString('vi-VN')}
+                  {new Date(log.created_at).toLocaleString('vi-VN', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
                 </TableCell>
               </TableRow>
             ))}

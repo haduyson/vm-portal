@@ -80,13 +80,13 @@ app = FastAPI(
     redirect_slashes=False,  # Disable auto redirect to avoid mixed content issues
 )
 
-# Configure CORS for internal use
+# Configure CORS - SEC-003: Restrict to specific origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.get_allowed_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 # Include routers with /api prefix

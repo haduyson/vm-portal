@@ -21,6 +21,10 @@ import {
   TableRow,
   Paper,
   Checkbox,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -79,6 +83,8 @@ export default function AdminSettingsPage() {
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [osTemplates, setOsTemplates] = useState<OsTemplate[]>([]);
+  const [proxmoxServers, setProxmoxServers] = useState<{id: number; name: string}[]>([]);
+  const [selectedServerId, setSelectedServerId] = useState<number | null>(null);
 
   // Global feature flags state
   interface FeatureFlags {
@@ -94,7 +100,20 @@ export default function AdminSettingsPage() {
     loadSettings();
     loadOsTemplates();
     loadFeatureFlags();
+    loadProxmoxServers();
   }, []);
+
+  const loadProxmoxServers = async () => {
+    try {
+      const response = await apiClient.get('/admin/proxmox-servers');
+      setProxmoxServers(response.data);
+      if (response.data.length > 0) {
+        setSelectedServerId(response.data[0].id);
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   const loadSettings = async () => {
     try {
@@ -216,10 +235,14 @@ export default function AdminSettingsPage() {
   };
 
   const handleScanProxmoxTemplates = async () => {
+    if (!selectedServerId) {
+      setErrorMessage('Vui lòng chọn Proxmox server');
+      return;
+    }
     setScanLoading(true);
     setErrorMessage('');
     try {
-      const response = await apiClient.get('/admin/proxmox-templates');
+      const response = await apiClient.get(`/admin/proxmox-templates?server_id=${selectedServerId}`);
       setProxmoxTemplates(response.data.templates || []);
       setProxmoxIsos(response.data.isos || []);
       setSelectedTemplates([]);
@@ -419,13 +442,25 @@ export default function AdminSettingsPage() {
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6">Hệ điều hành</Typography>
-            <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <FormControl size="small" sx={{ minWidth: 150 }}>
+                <InputLabel>Proxmox Server</InputLabel>
+                <Select
+                  value={selectedServerId || ''}
+                  label="Proxmox Server"
+                  onChange={(e) => setSelectedServerId(Number(e.target.value))}
+                >
+                  {proxmoxServers.map((srv) => (
+                    <MenuItem key={srv.id} value={srv.id}>{srv.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
               <Button
                 variant="outlined"
                 size="small"
                 startIcon={<SearchIcon />}
                 onClick={handleScanProxmoxTemplates}
-                disabled={scanLoading}
+                disabled={scanLoading || !selectedServerId}
               >
                 {scanLoading ? 'Đang quét...' : 'Quét từ Proxmox'}
               </Button>
@@ -441,12 +476,12 @@ export default function AdminSettingsPage() {
           </Box>
           <Divider sx={{ mb: 2 }} />
           {osTemplates.length > 0 ? (
-            <TableContainer component={Paper} variant="outlined">
-              <Table size="small">
+            <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
+              <Table size="small" sx={{ minWidth: 400 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Tên hiển thị</TableCell>
-                    <TableCell>Mã OS</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Mã OS</TableCell>
                     <TableCell align="center">Bật/Tắt</TableCell>
                     <TableCell align="center">Xóa</TableCell>
                   </TableRow>
@@ -455,7 +490,7 @@ export default function AdminSettingsPage() {
                   {osTemplates.map((template) => (
                     <TableRow key={template.id}>
                       <TableCell>{template.label}</TableCell>
-                      <TableCell>
+                      <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                         <Chip label={template.os_type_key} size="small" variant="outlined" />
                       </TableCell>
                       <TableCell align="center">
@@ -532,8 +567,8 @@ export default function AdminSettingsPage() {
             VM Templates ({proxmoxTemplates.length})
           </Typography>
           {proxmoxTemplates.length > 0 ? (
-            <TableContainer component={Paper} variant="outlined" sx={{ mt: 1, mb: 2 }}>
-              <Table size="small">
+            <TableContainer component={Paper} variant="outlined" sx={{ mt: 1, mb: 2, overflowX: 'auto' }}>
+              <Table size="small" sx={{ minWidth: 400 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell padding="checkbox">
@@ -543,10 +578,10 @@ export default function AdminSettingsPage() {
                         onChange={(e) => setSelectedTemplates(e.target.checked ? proxmoxTemplates.map((t) => t.vmid) : [])}
                       />
                     </TableCell>
-                    <TableCell>VMID</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>VMID</TableCell>
                     <TableCell>Tên</TableCell>
-                    <TableCell>Cores</TableCell>
-                    <TableCell>RAM</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Cores</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>RAM</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -573,8 +608,8 @@ export default function AdminSettingsPage() {
             ISO Images ({proxmoxIsos.length})
           </Typography>
           {proxmoxIsos.length > 0 ? (
-            <TableContainer component={Paper} variant="outlined" sx={{ mt: 1 }}>
-              <Table size="small">
+            <TableContainer component={Paper} variant="outlined" sx={{ mt: 1, overflowX: 'auto' }}>
+              <Table size="small" sx={{ minWidth: 300 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell padding="checkbox">
@@ -585,7 +620,7 @@ export default function AdminSettingsPage() {
                       />
                     </TableCell>
                     <TableCell>Tên file</TableCell>
-                    <TableCell>Kích thước</TableCell>
+                    <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Kích thước</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>

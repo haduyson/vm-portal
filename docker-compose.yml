@@ -2,50 +2,71 @@ services:
   db:
     image: postgres:16
     restart: unless-stopped
-    security_opt:
-      - apparmor:unconfined
+    # SEC-007: Removed apparmor:unconfined - use default security profile
     environment:
       POSTGRES_USER: ${DB_USER:-vmadmin}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      # SEC-017: Require DB_PASSWORD from environment (no weak default)
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD environment variable is required}
       POSTGRES_DB: ${DB_NAME:-vmportal}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Schema created by SQLAlchemy on app startup
-      # - ./database/init-database.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5432:5432"
+    # SEC-005: Removed port exposure - DB only accessible via internal network
+    # ports:
+    #   - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h localhost -U ${DB_USER:-vmadmin} -d ${DB_NAME:-vmportal}"]
       interval: 5s
       timeout: 5s
       retries: 5
+    # SEC-024: Add resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    networks:
+      - internal
 
   api:
     build:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    security_opt:
-      - apparmor:unconfined
+    # SEC-007: Removed apparmor:unconfined
     env_file:
       - .env
-    ports:
-      - "8000:8000"
+    # SEC-011: Removed port exposure - API only accessible via nginx
+    # ports:
+    #   - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - ./backend:/app
+      # SEC-025: Made host mounts read-only where possible
+      - ./backend:/app:ro
       - /var/lock/qemu-server:/var/lock/qemu-server:ro
-      - /etc/cloudflared:/etc/cloudflared
+      - /etc/cloudflared:/etc/cloudflared:ro
       - /var/lib/vz/snippets:/var/lib/vz/snippets
       - ./nginx/html:/app/static:ro
+    # SEC-024: Add resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    networks:
+      - internal
 
   nginx:
     image: nginx:alpine
     restart: unless-stopped
-    security_opt:
-      - apparmor:unconfined
+    # SEC-007: Removed apparmor:unconfined
     ports:
       - "80:80"
       - "443:443"
@@ -56,6 +77,23 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - api
+    # SEC-024: Add resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+    # Note: Not using internal: true because API needs outbound access
+    # for Telegram, Cloudflare, and email notifications
 
 volumes:
   postgres_data:

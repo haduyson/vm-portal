@@ -135,16 +135,16 @@ export default function UserIpPoolPage() {
           </CardContent>
         </Card>
       ) : (
-        <TableContainer component={Paper}>
-          <Table>
+        <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+          <Table sx={{ minWidth: 600 }}>
             <TableHead>
               <TableRow>
                 <TableCell>IP Address</TableCell>
-                <TableCell>Gateway</TableCell>
-                <TableCell>Bridge</TableCell>
-                <TableCell>VM</TableCell>
+                <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Gateway</TableCell>
+                <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Bridge</TableCell>
+                <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>VM</TableCell>
                 <TableCell>Trạng thái</TableCell>
-                <TableCell>Ngày nhận</TableCell>
+                <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Ngày nhận</TableCell>
                 <TableCell align="right">Thao tác</TableCell>
               </TableRow>
             </TableHead>
@@ -156,13 +156,13 @@ export default function UserIpPoolPage() {
                       {ip.ip_address}/{ip.subnet_mask === '255.255.255.0' ? '24' : ip.subnet_mask}
                     </Typography>
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                     <Typography variant="body2" fontFamily="monospace">
                       {ip.gateway || '-'}
                     </Typography>
                   </TableCell>
-                  <TableCell>{ip.bridge_name || '-'}</TableCell>
-                  <TableCell>
+                  <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>{ip.bridge_name || '-'}</TableCell>
+                  <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                     {ip.vm_name ? (
                       <Chip label={ip.vm_name} size="small" color="primary" />
                     ) : (
@@ -178,7 +178,7 @@ export default function UserIpPoolPage() {
                       <Chip label="Khả dụng" size="small" color="success" />
                     )}
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
                     {new Date(ip.acquired_at).toLocaleDateString('vi-VN')}
                   </TableCell>
                   <TableCell align="right">

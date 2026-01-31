@@ -1,11 +1,13 @@
 import asyncio
 import ssl
 import urllib.parse
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from jose import JWTError, jwt
 from app.database import get_session
 from app.models.virtual_machine_model import VirtualMachine
 from app.models.proxmox_server_model import ProxmoxServer
+from app.models.user_model import User
 from app.core.credential_encryption import decrypt_credential
 from app.config import settings
 from sqlalchemy import select
@@ -13,6 +15,41 @@ import websockets
 import aiohttp
 
 router = APIRouter(tags=["vnc-websocket"])
+
+
+def _get_verify_key() -> str:
+    """Get verification key for JWT."""
+    if settings.JWT_PUBLIC_KEY:
+        return settings.JWT_PUBLIC_KEY
+    return settings.SECRET_KEY
+
+
+def _get_algorithm() -> str:
+    """Get JWT algorithm."""
+    if settings.JWT_PRIVATE_KEY and settings.JWT_PUBLIC_KEY:
+        return "RS256"
+    return "HS256"
+
+
+async def verify_websocket_token(token: str, session: AsyncSession) -> User | None:
+    """SEC-001: Verify JWT token for WebSocket connections."""
+    try:
+        payload = jwt.decode(token, _get_verify_key(), algorithms=[_get_algorithm()])
+        username: str = payload.get("sub")
+        token_type: str = payload.get("type", "access")
+        if username is None or token_type != "access":
+            return None
+    except JWTError:
+        return None
+
+    result = await session.execute(select(User).where(User.username == username))
+    user = result.scalar_one_or_none()
+
+    # Also check if user is suspended
+    if user and user.is_suspended:
+        return None
+
+    return user
 
 
 async def _get_pve_auth(host: str, port: int, user: str, password: str) -> dict:
@@ -66,16 +103,25 @@ async def _create_vnc_proxy_with_ticket(
 async def vnc_websocket_proxy(
     websocket: WebSocket,
     vmid: int = Query(...),
+    token: str = Query(..., description="JWT access token for authentication"),
     session: AsyncSession = Depends(get_session),
 ):
     """
     WebSocket proxy: browser noVNC <-> Proxmox VNC WebSocket.
     Handles full VNC setup internally: PVE ticket auth, VNC proxy creation,
     and bidirectional WebSocket proxying.
+    SEC-001: Requires JWT authentication and VM ownership verification.
     """
     print(f"[VNC] WebSocket connection for vmid={vmid} from {websocket.client}")
+
+    # SEC-001: Verify JWT token before accepting connection
+    current_user = await verify_websocket_token(token, session)
+    if not current_user:
+        await websocket.close(code=1008, reason="Authentication required")
+        return
+
     await websocket.accept()
-    print(f"[VNC] WebSocket accepted for vmid={vmid}")
+    print(f"[VNC] WebSocket accepted for vmid={vmid}, user={current_user.username}")
 
     # Get VM to find Proxmox server details
     result = await session.execute(
@@ -85,6 +131,11 @@ async def vnc_websocket_proxy(
 
     if not vm:
         await websocket.close(code=1008, reason="VM not found")
+        return
+
+    # SEC-001: Verify VM ownership (user owns VM or is admin)
+    if vm.user_id != current_user.id and not current_user.is_admin:
+        await websocket.close(code=1008, reason="Access denied: Not your VM")
         return
 
     # Get Proxmox server credentials

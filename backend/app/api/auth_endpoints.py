@@ -17,7 +17,7 @@ from app.schemas.auth_schemas import (
 )
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.core.generate_random_password import generate_random_password
 import importlib
 from app.services.system_settings_service import get_setting
@@ -53,7 +53,7 @@ async def login(
         )
 
     # Check if temp password has expired
-    if user.temp_password_expires_at and datetime.utcnow() > user.temp_password_expires_at:
+    if user.temp_password_expires_at and datetime.now(timezone.utc) > user.temp_password_expires_at:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Mật khẩu tạm thời đã hết hạn. Vui lòng yêu cầu đặt lại mật khẩu mới.",
@@ -137,6 +137,8 @@ async def refresh_token(
     """Refresh access token using refresh token (rotation)."""
     token_record = await verify_refresh_token(session, request.refresh_token)
     if not token_record:
+        # SEC-016: Revoke token on verification failure to prevent replay attacks
+        await revoke_single_refresh_token(session, request.refresh_token)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token không hợp lệ hoặc đã hết hạn",
@@ -299,7 +301,7 @@ async def forgot_password(
     # Set temp password expiry
     expiry_val = await get_setting(session, "temp_password_expiry_minutes")
     expiry_minutes = int(expiry_val) if expiry_val else 60
-    user.temp_password_expires_at = datetime.utcnow() + timedelta(minutes=expiry_minutes)
+    user.temp_password_expires_at = datetime.now(timezone.utc) + timedelta(minutes=expiry_minutes)
 
     await session.commit()
 

@@ -1,5 +1,11 @@
 """Email templates matching Telegram notification style."""
+import html
 from typing import Optional, Tuple
+
+
+def _esc(value: str) -> str:
+    """SEC-023: Escape HTML special characters to prevent XSS."""
+    return html.escape(str(value)) if value else ""
 
 
 class EmailTemplates:
@@ -51,9 +57,11 @@ class EmailTemplates:
         web_domain: Optional[str],
         portal_url: str,
     ) -> Tuple[str, str]:
-        """Return (text, html) for VM ready notification."""
+        """Return (text, html) for VM ready notification.
+        SEC-023: All user-controlled values are HTML-escaped.
+        """
         web_line_text = f"\nWeb Domain: {web_domain}" if web_domain else ""
-        web_line_html = f'<div class="info-row"><div class="info-label">Web Domain</div><div class="info-value">{web_domain}</div></div>' if web_domain else ""
+        web_line_html = f'<div class="info-row"><div class="info-label">Web Domain</div><div class="info-value">{_esc(web_domain)}</div></div>' if web_domain else ""
 
         text = f"""VM Đã Sẵn Sàng!
 
@@ -67,23 +75,26 @@ Kết nối: ssh {username}@{ssh_domain}
 Quản lý VM: {portal_url}
 """
 
+        # SEC-023: Escape all user-controlled values
         content = f"""
             <p>Máy ảo của bạn đã sẵn sàng sử dụng!</p>
-            <div class="info-row"><div class="info-label">Tên VM</div><div class="info-value">{vm_name}</div></div>
-            <div class="info-row"><div class="info-label">IP Nội Bộ</div><div class="info-value">{ip}</div></div>
-            <div class="info-row"><div class="info-label">SSH Domain</div><div class="info-value">{ssh_domain}</div></div>
+            <div class="info-row"><div class="info-label">Tên VM</div><div class="info-value">{_esc(vm_name)}</div></div>
+            <div class="info-row"><div class="info-label">IP Nội Bộ</div><div class="info-value">{_esc(ip)}</div></div>
+            <div class="info-row"><div class="info-label">SSH Domain</div><div class="info-value">{_esc(ssh_domain)}</div></div>
             {web_line_html}
-            <div class="info-row"><div class="info-label">Username</div><div class="info-value">{username}</div></div>
-            <div class="info-row password"><div class="info-label">Password</div><div class="info-value">{password}</div></div>
-            <div class="info-row"><div class="info-label">Kết nối SSH</div><div class="info-value">ssh {username}@{ssh_domain}</div></div>
+            <div class="info-row"><div class="info-label">Username</div><div class="info-value">{_esc(username)}</div></div>
+            <div class="info-row password"><div class="info-label">Password</div><div class="info-value">{_esc(password)}</div></div>
+            <div class="info-row"><div class="info-label">Kết nối SSH</div><div class="info-value">ssh {_esc(username)}@{_esc(ssh_domain)}</div></div>
         """
 
-        html = EmailTemplates._base_html("VM Đã Sẵn Sàng", content, portal_url)
-        return text, html
+        html_content = EmailTemplates._base_html("VM Đã Sẵn Sàng", content, portal_url)
+        return text, html_content
 
     @staticmethod
     def vm_error(vm_name: str, error: str, portal_url: str) -> Tuple[str, str]:
-        """Return (text, html) for VM error notification."""
+        """Return (text, html) for VM error notification.
+        SEC-023: All user-controlled values are HTML-escaped.
+        """
         text = f"""Lỗi Tạo VM
 
 Tên VM: {vm_name}
@@ -93,10 +104,11 @@ Vui lòng liên hệ quản trị viên hoặc thử lại.
 Quản lý VM: {portal_url}
 """
 
+        # SEC-023: Escape all user-controlled values
         content = f"""
             <p>Đã xảy ra lỗi khi tạo máy ảo của bạn.</p>
-            <div class="info-row"><div class="info-label">Tên VM</div><div class="info-value">{vm_name}</div></div>
-            <div class="info-row error"><div class="info-label">Lỗi</div><div class="info-value">{error}</div></div>
+            <div class="info-row"><div class="info-label">Tên VM</div><div class="info-value">{_esc(vm_name)}</div></div>
+            <div class="info-row error"><div class="info-label">Lỗi</div><div class="info-value">{_esc(error)}</div></div>
             <p>Vui lòng liên hệ quản trị viên hoặc thử lại.</p>
         """
 

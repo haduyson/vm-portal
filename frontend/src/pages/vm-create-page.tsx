@@ -609,8 +609,9 @@ export default function VMCreatePage() {
               fullWidth
               label="Tên máy ảo"
               value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              helperText="Tên duy nhất để nhận diện máy ảo"
+              onChange={(e) => setFormData({ ...formData, name: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
+              helperText="Chỉ chữ thường (a-z), số (0-9) và dấu gạch ngang (-). Bắt đầu bằng chữ cái. VD: my-vm-01"
+              inputProps={{ maxLength: 63 }}
             />
 
             <Box sx={{ mt: 3 }}>
@@ -670,10 +671,9 @@ export default function VMCreatePage() {
                     </MenuItem>
                   ))
                 ) : (
-                  <>
-                    <MenuItem value="ubuntu-24.04-cloudinit">Ubuntu 24.04 (Cloud-Init) — Nhanh</MenuItem>
-                    <MenuItem value="ubuntu-server-24.04">Ubuntu Server 24.04 (ISO)</MenuItem>
-                  </>
+                  <MenuItem value="" disabled>
+                    Chưa có template — Admin cần cấu hình OS Templates
+                  </MenuItem>
                 )}
               </Select>
             </FormControl>

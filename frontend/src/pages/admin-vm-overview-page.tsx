@@ -12,7 +12,6 @@ import {
   Alert,
   Card,
   CardContent,
-  Stack,
   IconButton,
   Tooltip,
   Dialog,
@@ -256,7 +255,7 @@ export default function AdminVmOverviewPage() {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 2, mb: 2 }}>
         <Typography variant="h4">
           Tất Cả Máy Ảo
         </Typography>
@@ -264,6 +263,7 @@ export default function AdminVmOverviewPage() {
           variant="outlined"
           startIcon={<DownloadIcon />}
           onClick={handleExportCSV}
+          size="small"
         >
           Xuất CSV
         </Button>
@@ -276,47 +276,55 @@ export default function AdminVmOverviewPage() {
       )}
 
       {stats && (
-        <Stack direction="row" spacing={2} sx={{ mb: 3 }}>
-          <Card sx={{ minWidth: 140 }}>
-            <CardContent>
-              <Typography color="text.secondary" variant="body2">
-                Tổng người dùng
-              </Typography>
-              <Typography variant="h5">{stats.total_users}</Typography>
-            </CardContent>
-          </Card>
-          <Card sx={{ minWidth: 140 }}>
-            <CardContent>
-              <Typography color="text.secondary" variant="body2">
-                Tổng VM
-              </Typography>
-              <Typography variant="h5">{stats.total_vms}</Typography>
-            </CardContent>
-          </Card>
-          <Card sx={{ minWidth: 140 }}>
-            <CardContent>
-              <Typography color="text.secondary" variant="body2">
-                Đang chạy
-              </Typography>
-              <Typography variant="h5" color="success.main">
-                {stats.running_vms}
-              </Typography>
-            </CardContent>
-          </Card>
-          <Card sx={{ minWidth: 140 }}>
-            <CardContent>
-              <Typography color="text.secondary" variant="body2">
-                Đang tạo
-              </Typography>
-              <Typography variant="h5" color="warning.main">
-                {stats.creating_vms}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Stack>
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          <Grid item xs={6} sm={3}>
+            <Card>
+              <CardContent>
+                <Typography color="text.secondary" variant="body2">
+                  Tổng người dùng
+                </Typography>
+                <Typography variant="h5">{stats.total_users}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={3}>
+            <Card>
+              <CardContent>
+                <Typography color="text.secondary" variant="body2">
+                  Tổng VM
+                </Typography>
+                <Typography variant="h5">{stats.total_vms}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={3}>
+            <Card>
+              <CardContent>
+                <Typography color="text.secondary" variant="body2">
+                  Đang chạy
+                </Typography>
+                <Typography variant="h5" color="success.main">
+                  {stats.running_vms}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={6} sm={3}>
+            <Card>
+              <CardContent>
+                <Typography color="text.secondary" variant="body2">
+                  Đang tạo
+                </Typography>
+                <Typography variant="h5" color="warning.main">
+                  {stats.creating_vms}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
       )}
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 2, mb: 3 }}>
         <TextField
           label="Tìm kiếm theo tên VM, người dùng hoặc IP"
           variant="outlined"
@@ -325,7 +333,7 @@ export default function AdminVmOverviewPage() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
-        <FormControl size="small" sx={{ minWidth: 200 }}>
+        <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 } }}>
           <InputLabel>Trạng thái</InputLabel>
           <Select
             value={statusFilter}
@@ -342,20 +350,20 @@ export default function AdminVmOverviewPage() {
         </FormControl>
       </Box>
 
-      <TableContainer component={Paper}>
-        <Table>
+      <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+        <Table sx={{ minWidth: 650 }}>
           <TableHead>
             <TableRow>
               <TableCell padding="checkbox" />
               <TableCell>VMID</TableCell>
               <TableCell>Tên VM</TableCell>
-              <TableCell>Người dùng</TableCell>
+              <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Người dùng</TableCell>
               <TableCell>Trạng thái</TableCell>
-              <TableCell align="right">CPU</TableCell>
-              <TableCell align="right">RAM</TableCell>
-              <TableCell align="right">Disk</TableCell>
-              <TableCell>IP</TableCell>
-              <TableCell>Ngày tạo</TableCell>
+              <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>CPU</TableCell>
+              <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>RAM</TableCell>
+              <TableCell align="right" sx={{ display: { xs: 'none', lg: 'table-cell' } }}>Disk</TableCell>
+              <TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>IP</TableCell>
+              <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Ngày tạo</TableCell>
               <TableCell align="center">Hành động</TableCell>
             </TableRow>
           </TableHead>
@@ -377,21 +385,21 @@ export default function AdminVmOverviewPage() {
                   </TableCell>
                   <TableCell>{vm.vmid}</TableCell>
                   <TableCell>{vm.name}</TableCell>
-                  <TableCell>{vm.username}</TableCell>
+                  <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>{vm.username}</TableCell>
                   <TableCell>
                     <VMStatusChip status={vm.status} />
                   </TableCell>
-                  <TableCell align="right">{vm.cores} cores</TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>{vm.cores} cores</TableCell>
+                  <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>
                     {Math.round(vm.memory_mb / 1024)} GB
                   </TableCell>
-                  <TableCell align="right">{vm.disk_gb} GB</TableCell>
-                  <TableCell>{vm.ip_address || '-'}</TableCell>
-                  <TableCell>
+                  <TableCell align="right" sx={{ display: { xs: 'none', lg: 'table-cell' } }}>{vm.disk_gb} GB</TableCell>
+                  <TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>{vm.ip_address || '-'}</TableCell>
+                  <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>
                     {new Date(vm.created_at).toLocaleDateString('vi-VN')}
                   </TableCell>
                   <TableCell align="center" onClick={(e) => e.stopPropagation()}>
-                    <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                    <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
                       <Tooltip title="Khởi động">
                         <span>
                           <IconButton

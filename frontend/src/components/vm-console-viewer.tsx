@@ -104,9 +104,17 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSH
           // Dynamic import noVNC RFB
           const { default: RFB } = await import('@novnc/novnc/lib/rfb.js');
 
+          // SEC-001: Get JWT token for WebSocket authentication
+          const accessToken = localStorage.getItem('token');
+          if (!accessToken) {
+            setError('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+            setLoading(false);
+            return;
+          }
+
           // Backend handles full VNC setup (PVE ticket, proxy, WebSocket)
           const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-          const wsUrl = `${wsProtocol}//${window.location.host}/vnc-ws?vmid=${info.vmid}`;
+          const wsUrl = `${wsProtocol}//${window.location.host}/vnc-ws?vmid=${info.vmid}&token=${encodeURIComponent(accessToken)}`;
 
           const rfb = new RFB(canvasRef.current, wsUrl, {
             wsProtocols: ['binary'],

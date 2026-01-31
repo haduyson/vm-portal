@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -12,8 +12,12 @@ from app.database import get_session
 from app.models.user_model import User
 from app.models.refresh_token_model import RefreshToken
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Password hashing context - SEC-015: Configure bcrypt rounds
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__rounds=settings.BCRYPT_ROUNDS,
+)
 
 # HTTP Bearer token scheme
 security = HTTPBearer()
@@ -29,30 +33,51 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
+def _get_signing_key() -> str:
+    """SEC-014: Get signing key - RS256 private key or HS256 secret."""
+    if settings.JWT_PRIVATE_KEY:
+        return settings.JWT_PRIVATE_KEY
+    return settings.SECRET_KEY
+
+
+def _get_verify_key() -> str:
+    """SEC-014: Get verification key - RS256 public key or HS256 secret."""
+    if settings.JWT_PUBLIC_KEY:
+        return settings.JWT_PUBLIC_KEY
+    return settings.SECRET_KEY
+
+
+def _get_algorithm() -> str:
+    """Get JWT algorithm based on key configuration."""
+    if settings.JWT_PRIVATE_KEY and settings.JWT_PUBLIC_KEY:
+        return "RS256"
+    return "HS256"
+
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT access token."""
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, _get_signing_key(), algorithm=_get_algorithm())
     return encoded_jwt
 
 
 def create_partial_token(username: str) -> str:
     """Create a short-lived partial JWT for 2FA flow (5 min)."""
-    expire = datetime.utcnow() + timedelta(minutes=5)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=5)
     data = {"sub": username, "type": "partial_2fa", "exp": expire}
-    return jwt.encode(data, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return jwt.encode(data, _get_signing_key(), algorithm=_get_algorithm())
 
 
 def verify_partial_token(token: str) -> Optional[str]:
     """Verify partial 2FA token. Returns username or None."""
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, _get_verify_key(), algorithms=[_get_algorithm()])
         if payload.get("type") != "partial_2fa":
             return None
         return payload.get("sub")
@@ -63,6 +88,7 @@ def verify_partial_token(token: str) -> Optional[str]:
 async def create_refresh_token(session: AsyncSession, user_id: int, expiry_days: int = 7) -> str:
     """Create a refresh token stored in DB."""
     token = secrets.token_urlsafe(64)
+    # Use naive datetime for DB (TIMESTAMP WITHOUT TIME ZONE)
     expires_at = datetime.utcnow() + timedelta(days=expiry_days)
 
     refresh_token = RefreshToken(
@@ -120,10 +146,11 @@ async def get_current_user(
 
     try:
         token = credentials.credentials
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, _get_verify_key(), algorithms=[_get_algorithm()])
         username: str = payload.get("sub")
         token_type: str = payload.get("type", "access")
-        if username is None or token_type == "partial_2fa":
+        # SEC-020: Whitelist only "access" token type
+        if username is None or token_type != "access":
             raise credentials_exception
     except JWTError:
         raise credentials_exception
@@ -134,6 +161,13 @@ async def get_current_user(
 
     if user is None:
         raise credentials_exception
+
+    # SEC-002: Block suspended users
+    if user.is_suspended:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tài khoản đã bị khóa",
+        )
 
     return user
 

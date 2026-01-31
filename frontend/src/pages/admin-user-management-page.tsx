@@ -308,15 +308,16 @@ export default function AdminUserManagementPage() {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 2, mb: 2 }}>
         <Typography variant="h4">
           Quản Lý Người Dùng
         </Typography>
-        <Box sx={{ display: 'flex', gap: 2 }}>
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
           <Button
             variant="outlined"
             startIcon={<DownloadIcon />}
             onClick={handleExportCSV}
+            size="small"
           >
             Xuất CSV
           </Button>
@@ -324,6 +325,7 @@ export default function AdminUserManagementPage() {
             variant="contained"
             startIcon={<AddIcon />}
             onClick={() => setCreateDialog(true)}
+            size="small"
           >
             Thêm người dùng
           </Button>
@@ -346,17 +348,17 @@ export default function AdminUserManagementPage() {
         sx={{ mb: 2 }}
       />
 
-      <TableContainer component={Paper}>
-        <Table>
+      <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+        <Table sx={{ minWidth: 650 }}>
           <TableHead>
             <TableRow>
               <TableCell />
               <TableCell>ID</TableCell>
               <TableCell>Tên đăng nhập</TableCell>
-              <TableCell>Trạng thái</TableCell>
-              <TableCell>Telegram</TableCell>
-              <TableCell align="right">Số VM</TableCell>
-              <TableCell>Ngày tạo</TableCell>
+              <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Trạng thái</TableCell>
+              <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Telegram</TableCell>
+              <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>Số VM</TableCell>
+              <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>Ngày tạo</TableCell>
               <TableCell align="center">Hành động</TableCell>
             </TableRow>
           </TableHead>
@@ -371,15 +373,19 @@ export default function AdminUserManagementPage() {
                   </TableCell>
                   <TableCell>{user.id}</TableCell>
                   <TableCell>
-                    {user.username}
-                    {user.is_admin && (
-                      <Chip label="Admin" color="primary" size="small" sx={{ ml: 1 }} />
-                    )}
-                    {user.is_suspended && (
-                      <Chip label="Bị khóa" color="error" size="small" sx={{ ml: 1 }} />
-                    )}
+                    <Box>
+                      {user.username}
+                      <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
+                        {user.is_admin && (
+                          <Chip label="Admin" color="primary" size="small" />
+                        )}
+                        {user.is_suspended && (
+                          <Chip label="Bị khóa" color="error" size="small" />
+                        )}
+                      </Box>
+                    </Box>
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>
                     <Switch
                       checked={!user.is_suspended}
                       onChange={() => handleToggleSuspend(user)}
@@ -388,9 +394,9 @@ export default function AdminUserManagementPage() {
                       title={user.is_suspended ? 'Tài khoản đang bị khóa' : 'Tài khoản đang hoạt động'}
                     />
                   </TableCell>
-                  <TableCell>{user.telegram_chat_id || '-'}</TableCell>
-                  <TableCell align="right">{user.vm_count}</TableCell>
-                  <TableCell>{new Date(user.created_at).toLocaleDateString('vi-VN')}</TableCell>
+                  <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>{user.telegram_chat_id || '-'}</TableCell>
+                  <TableCell align="right" sx={{ display: { xs: 'none', sm: 'table-cell' } }}>{user.vm_count}</TableCell>
+                  <TableCell sx={{ display: { xs: 'none', md: 'table-cell' } }}>{new Date(user.created_at).toLocaleDateString('vi-VN')}</TableCell>
                   <TableCell align="center">
                     <IconButton
                       color="info"

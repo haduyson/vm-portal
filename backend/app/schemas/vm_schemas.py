@@ -10,11 +10,16 @@ class VMCreate(BaseModel):
     @field_validator("name")
     @classmethod
     def validate_dns_name(cls, v: str) -> str:
-        v = v.strip()
-        if not re.match(r'^[a-zA-Z][a-zA-Z0-9\-]*$', v):
+        """SEC-021: Strict DNS hostname validation."""
+        v = v.strip().lower()
+        # Must start with letter, contain only alphanumeric and single hyphens
+        # Cannot end with hyphen or have consecutive hyphens
+        if not re.match(r'^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$', v):
             raise ValueError(
-                "Tên VM chỉ được chứa chữ cái, số và dấu gạch ngang, bắt đầu bằng chữ cái (VD: my-vm-01)"
+                "Tên VM phải bắt đầu bằng chữ cái, chỉ chứa chữ thường, số và dấu gạch ngang đơn (VD: my-vm-01)"
             )
+        if len(v) > 63:  # DNS label limit
+            raise ValueError("Tên VM không được quá 63 ký tự")
         return v
     cores: int = Field(..., ge=1, le=16)
     memory_mb: int = Field(..., ge=512, le=32768)

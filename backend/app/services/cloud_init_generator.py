@@ -1,4 +1,4 @@
-import random
+import secrets
 import string
 import base64
 import os
@@ -184,9 +184,13 @@ class CloudInitGenerator:
 
     @staticmethod
     def generate_credentials() -> Tuple[str, str]:
-        """Generate SSH credentials with root as default username."""
+        """Generate SSH credentials with root as default username.
+        SEC-012: Use secrets module for cryptographically secure password generation.
+        """
         username = "root"
-        password = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
+        # Use secrets for cryptographically secure random password
+        alphabet = string.ascii_letters + string.digits
+        password = ''.join(secrets.choice(alphabet) for _ in range(16))
         return username, password
 
     @staticmethod

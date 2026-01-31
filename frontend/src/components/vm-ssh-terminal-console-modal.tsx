@@ -225,10 +225,11 @@ export default function VMSSHConsoleModal({
       onClose={handleClose}
       maxWidth="lg"
       fullWidth
+      fullScreen={(window.innerWidth < 600)}
       PaperProps={{
         sx: {
-          height: '80vh',
-          maxHeight: '80vh',
+          height: { xs: '100vh', sm: '80vh' },
+          maxHeight: { xs: '100vh', sm: '80vh' },
         },
       }}
     >
