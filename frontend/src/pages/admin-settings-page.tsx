@@ -496,10 +496,10 @@ export default function AdminSettingsPage() {
               control={
                 <Switch checked={autoAssignIpSubdomain} onChange={(e) => setAutoAssignIpSubdomain(e.target.checked)} />
               }
-              label="Tự động gán IP & Subdomain cho VM mới"
+              label="Tự động gán Subdomain cho VM mới"
             />
             <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: -1 }}>
-              Khi bật, mỗi VM mới sẽ tự động được gán IP tĩnh ngẫu nhiên và subdomain từ tên VM
+              Khi bật, mỗi VM mới sẽ tự động được tạo SSH/Web subdomain từ tên VM (qua Cloudflare Tunnel)
             </Typography>
           </Stack>
         </CardContent>
@@ -597,221 +597,225 @@ export default function AdminSettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Telegram Settings */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>Cấu hình Telegram</Typography>
-          <Divider sx={{ mb: 2 }} />
-          <Stack spacing={3}>
-            {settings && (
-              <Box>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Nguồn cấu hình:{' '}
-                  <Chip
-                    label={settings.telegram_source === 'database' ? 'Cơ sở dữ liệu' : 'Biến môi trường'}
-                    size="small"
-                    color={settings.telegram_source === 'database' ? 'primary' : 'default'}
-                  />
-                </Typography>
-              </Box>
-            )}
+      {/* Telegram Settings - Only show when telegram notifications enabled */}
+      {featureFlags.telegram_notifications_enabled && (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Cấu hình Telegram</Typography>
+            <Divider sx={{ mb: 2 }} />
+            <Stack spacing={3}>
+              {settings && (
+                <Box>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Nguồn cấu hình:{' '}
+                    <Chip
+                      label={settings.telegram_source === 'database' ? 'Cơ sở dữ liệu' : 'Biến môi trường'}
+                      size="small"
+                      color={settings.telegram_source === 'database' ? 'primary' : 'default'}
+                    />
+                  </Typography>
+                </Box>
+              )}
 
-            <TextField
-              label="Bot Token"
-              type={showToken ? 'text' : 'password'}
-              value={botToken || settings?.telegram_bot_token || ''}
-              onChange={(e) => setBotToken(e.target.value)}
-              placeholder="Nhập bot token"
-              fullWidth
-              helperText="Nhập token mới để cập nhật, để trống nếu không muốn thay đổi"
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton onClick={() => setShowToken(!showToken)} edge="end">
-                      {showToken ? <VisibilityOff /> : <Visibility />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
-
-            <TextField
-              label="Default Chat ID"
-              value={chatId}
-              onChange={(e) => setChatId(e.target.value)}
-              placeholder="Nhập chat ID mặc định"
-              fullWidth
-              helperText="Chat ID để nhận thông báo mặc định"
-            />
-
-            <TextField
-              label="URL Portal thông báo"
-              value={portalUrl}
-              onChange={(e) => setPortalUrl(e.target.value)}
-              placeholder="https://vm.example.com"
-              fullWidth
-              helperText="URL hiển thị trong thông báo Telegram (tạo user, reset password, VM sẵn sàng)"
-            />
-
-            <Button
-              variant="outlined"
-              startIcon={<SendIcon />}
-              onClick={handleTestTelegram}
-              disabled={testLoading || !settings?.telegram_default_chat_id}
-              sx={{ alignSelf: 'flex-start' }}
-            >
-              {testLoading ? 'Đang gửi...' : 'Gửi tin nhắn thử'}
-            </Button>
-          </Stack>
-        </CardContent>
-      </Card>
-
-      {/* Email Settings */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-            <Typography variant="h6">Cấu hình Email</Typography>
-            {emailSettings && (
-              <Chip
-                label={emailSettings.is_configured ? 'Đã cấu hình' : 'Chưa cấu hình'}
-                size="small"
-                color={emailSettings.is_configured ? 'success' : 'default'}
-              />
-            )}
-          </Box>
-          <Divider sx={{ mb: 2 }} />
-          <Stack spacing={3}>
-            <FormControl fullWidth>
-              <InputLabel>Nhà cung cấp</InputLabel>
-              <Select
-                value={emailProvider}
-                label="Nhà cung cấp"
-                onChange={(e) => setEmailProvider(e.target.value)}
-              >
-                <MenuItem value="smtp">SMTP</MenuItem>
-                <MenuItem value="sendgrid">SendGrid</MenuItem>
-                <MenuItem value="resend">Resend</MenuItem>
-              </Select>
-            </FormControl>
-
-            {emailProvider === 'smtp' && (
-              <>
-                <TextField
-                  label="SMTP Host"
-                  value={smtpHost}
-                  onChange={(e) => setSmtpHost(e.target.value)}
-                  placeholder="smtp.gmail.com"
-                  fullWidth
-                />
-                <TextField
-                  label="SMTP Port"
-                  type="number"
-                  value={smtpPort}
-                  onChange={(e) => setSmtpPort(parseInt(e.target.value) || 587)}
-                  fullWidth
-                  inputProps={{ min: 1, max: 65535 }}
-                />
-                <TextField
-                  label="SMTP Username"
-                  value={smtpUser}
-                  onChange={(e) => setSmtpUser(e.target.value)}
-                  placeholder="your-email@gmail.com"
-                  fullWidth
-                />
-                <TextField
-                  label="SMTP Password"
-                  type={showSmtpPassword ? 'text' : 'password'}
-                  value={smtpPassword}
-                  onChange={(e) => setSmtpPassword(e.target.value)}
-                  placeholder={emailSettings?.smtp_password_masked || 'Nhập mật khẩu SMTP'}
-                  fullWidth
-                  helperText="Nhập mật khẩu mới để cập nhật, để trống nếu không muốn thay đổi"
-                  InputProps={{
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton onClick={() => setShowSmtpPassword(!showSmtpPassword)} edge="end">
-                          {showSmtpPassword ? <VisibilityOff /> : <Visibility />}
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-                <FormControlLabel
-                  control={
-                    <Switch checked={smtpUseTls} onChange={(e) => setSmtpUseTls(e.target.checked)} />
-                  }
-                  label="Sử dụng TLS"
-                />
-              </>
-            )}
-
-            {(emailProvider === 'sendgrid' || emailProvider === 'resend') && (
               <TextField
-                label="API Key"
-                type={showApiKey ? 'text' : 'password'}
-                value={emailApiKey}
-                onChange={(e) => setEmailApiKey(e.target.value)}
-                placeholder={emailSettings?.api_key_masked || 'Nhập API key'}
+                label="Bot Token"
+                type={showToken ? 'text' : 'password'}
+                value={botToken || settings?.telegram_bot_token || ''}
+                onChange={(e) => setBotToken(e.target.value)}
+                placeholder="Nhập bot token"
                 fullWidth
-                helperText="Nhập API key mới để cập nhật, để trống nếu không muốn thay đổi"
+                helperText="Nhập token mới để cập nhật, để trống nếu không muốn thay đổi"
                 InputProps={{
                   endAdornment: (
                     <InputAdornment position="end">
-                      <IconButton onClick={() => setShowApiKey(!showApiKey)} edge="end">
-                        {showApiKey ? <VisibilityOff /> : <Visibility />}
+                      <IconButton onClick={() => setShowToken(!showToken)} edge="end">
+                        {showToken ? <VisibilityOff /> : <Visibility />}
                       </IconButton>
                     </InputAdornment>
                   ),
                 }}
               />
-            )}
-
-            <Divider />
-
-            <TextField
-              label="Email gửi đi (From)"
-              value={fromEmail}
-              onChange={(e) => setFromEmail(e.target.value)}
-              placeholder="noreply@example.com"
-              fullWidth
-            />
-            <TextField
-              label="Tên hiển thị (From Name)"
-              value={fromName}
-              onChange={(e) => setFromName(e.target.value)}
-              placeholder="VM Portal"
-              fullWidth
-            />
-
-            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-              <Button
-                variant="contained"
-                onClick={handleSaveEmailSettings}
-                disabled={loading}
-              >
-                {loading ? 'Đang lưu...' : 'Lưu cài đặt Email'}
-              </Button>
 
               <TextField
-                label="Email test"
-                value={testEmailAddress}
-                onChange={(e) => setTestEmailAddress(e.target.value)}
-                placeholder="test@example.com"
-                size="small"
-                sx={{ minWidth: 250 }}
+                label="Default Chat ID"
+                value={chatId}
+                onChange={(e) => setChatId(e.target.value)}
+                placeholder="Nhập chat ID mặc định"
+                fullWidth
+                helperText="Chat ID để nhận thông báo mặc định"
               />
+
+              <TextField
+                label="URL Portal thông báo"
+                value={portalUrl}
+                onChange={(e) => setPortalUrl(e.target.value)}
+                placeholder="https://vm.example.com"
+                fullWidth
+                helperText="URL hiển thị trong thông báo Telegram (tạo user, reset password, VM sẵn sàng)"
+              />
+
               <Button
                 variant="outlined"
-                startIcon={<EmailIcon />}
-                onClick={handleTestEmail}
-                disabled={emailTestLoading || !emailSettings?.is_configured}
+                startIcon={<SendIcon />}
+                onClick={handleTestTelegram}
+                disabled={testLoading || !settings?.telegram_default_chat_id}
+                sx={{ alignSelf: 'flex-start' }}
               >
-                {emailTestLoading ? 'Đang gửi...' : 'Gửi email thử'}
+                {testLoading ? 'Đang gửi...' : 'Gửi tin nhắn thử'}
               </Button>
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Email Settings - Only show when email notifications enabled */}
+      {featureFlags.email_notifications_enabled && (
+        <Card sx={{ mb: 3 }}>
+          <CardContent>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+              <Typography variant="h6">Cấu hình Email</Typography>
+              {emailSettings && (
+                <Chip
+                  label={emailSettings.is_configured ? 'Đã cấu hình' : 'Chưa cấu hình'}
+                  size="small"
+                  color={emailSettings.is_configured ? 'success' : 'default'}
+                />
+              )}
             </Box>
-          </Stack>
-        </CardContent>
-      </Card>
+            <Divider sx={{ mb: 2 }} />
+            <Stack spacing={3}>
+              <FormControl fullWidth>
+                <InputLabel>Nhà cung cấp</InputLabel>
+                <Select
+                  value={emailProvider}
+                  label="Nhà cung cấp"
+                  onChange={(e) => setEmailProvider(e.target.value)}
+                >
+                  <MenuItem value="smtp">SMTP</MenuItem>
+                  <MenuItem value="sendgrid">SendGrid</MenuItem>
+                  <MenuItem value="resend">Resend</MenuItem>
+                </Select>
+              </FormControl>
+
+              {emailProvider === 'smtp' && (
+                <>
+                  <TextField
+                    label="SMTP Host"
+                    value={smtpHost}
+                    onChange={(e) => setSmtpHost(e.target.value)}
+                    placeholder="smtp.gmail.com"
+                    fullWidth
+                  />
+                  <TextField
+                    label="SMTP Port"
+                    type="number"
+                    value={smtpPort}
+                    onChange={(e) => setSmtpPort(parseInt(e.target.value) || 587)}
+                    fullWidth
+                    inputProps={{ min: 1, max: 65535 }}
+                  />
+                  <TextField
+                    label="SMTP Username"
+                    value={smtpUser}
+                    onChange={(e) => setSmtpUser(e.target.value)}
+                    placeholder="your-email@gmail.com"
+                    fullWidth
+                  />
+                  <TextField
+                    label="SMTP Password"
+                    type={showSmtpPassword ? 'text' : 'password'}
+                    value={smtpPassword}
+                    onChange={(e) => setSmtpPassword(e.target.value)}
+                    placeholder={emailSettings?.smtp_password_masked || 'Nhập mật khẩu SMTP'}
+                    fullWidth
+                    helperText="Nhập mật khẩu mới để cập nhật, để trống nếu không muốn thay đổi"
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton onClick={() => setShowSmtpPassword(!showSmtpPassword)} edge="end">
+                            {showSmtpPassword ? <VisibilityOff /> : <Visibility />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                  <FormControlLabel
+                    control={
+                      <Switch checked={smtpUseTls} onChange={(e) => setSmtpUseTls(e.target.checked)} />
+                    }
+                    label="Sử dụng TLS"
+                  />
+                </>
+              )}
+
+              {(emailProvider === 'sendgrid' || emailProvider === 'resend') && (
+                <TextField
+                  label="API Key"
+                  type={showApiKey ? 'text' : 'password'}
+                  value={emailApiKey}
+                  onChange={(e) => setEmailApiKey(e.target.value)}
+                  placeholder={emailSettings?.api_key_masked || 'Nhập API key'}
+                  fullWidth
+                  helperText="Nhập API key mới để cập nhật, để trống nếu không muốn thay đổi"
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton onClick={() => setShowApiKey(!showApiKey)} edge="end">
+                          {showApiKey ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              )}
+
+              <Divider />
+
+              <TextField
+                label="Email gửi đi (From)"
+                value={fromEmail}
+                onChange={(e) => setFromEmail(e.target.value)}
+                placeholder="noreply@example.com"
+                fullWidth
+              />
+              <TextField
+                label="Tên hiển thị (From Name)"
+                value={fromName}
+                onChange={(e) => setFromName(e.target.value)}
+                placeholder="VM Portal"
+                fullWidth
+              />
+
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+                <Button
+                  variant="contained"
+                  onClick={handleSaveEmailSettings}
+                  disabled={loading}
+                >
+                  {loading ? 'Đang lưu...' : 'Lưu cài đặt Email'}
+                </Button>
+
+                <TextField
+                  label="Email test"
+                  value={testEmailAddress}
+                  onChange={(e) => setTestEmailAddress(e.target.value)}
+                  placeholder="test@example.com"
+                  size="small"
+                  sx={{ minWidth: 250 }}
+                />
+                <Button
+                  variant="outlined"
+                  startIcon={<EmailIcon />}
+                  onClick={handleTestEmail}
+                  disabled={emailTestLoading || !emailSettings?.is_configured}
+                >
+                  {emailTestLoading ? 'Đang gửi...' : 'Gửi email thử'}
+                </Button>
+              </Box>
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
 
       {/* OS Templates */}
       <Card sx={{ mb: 3 }}>
