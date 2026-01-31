@@ -92,6 +92,10 @@ async def create_vm(
                     detail=f"Đã vượt giới hạn số CPU cores ({current_cpu_cores + vm_data.cores}/{current_user.max_cpu_cores})",
                 )
 
+        # Check feature flags for cloudflare_tunnel and public_ip
+        global_flags = await FeatureFlagService.get_global_flags(session)
+        user_flags = current_user.feature_flags or {}
+
         # Validate SSH and HTTP subdomains if auto-assign is enabled
         vm_base_subdomain = None
         cf_domain = None
@@ -101,6 +105,17 @@ async def create_vm(
         # Check if auto-assign is enabled
         auto_assign_enabled = await get_setting(session, "auto_assign_ip_subdomain")
         should_auto_assign = (auto_assign_enabled or "false").lower() == "true" and not vm_data.ssh_subdomain
+
+        # Check cloudflare_tunnel_enabled feature flag
+        can_use_tunnel = FeatureFlagService.resolve_flag(
+            "cloudflare_tunnel_enabled", global_flags, user_flags, None
+        )
+
+        if (vm_data.ssh_subdomain or should_auto_assign) and not can_use_tunnel:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tính năng Cloudflare Tunnel đã bị tắt cho tài khoản của bạn",
+            )
 
         if vm_data.ssh_subdomain or should_auto_assign:
             if should_auto_assign:
@@ -311,6 +326,18 @@ async def create_vm(
         # Handle static IP from user's pool
         static_ip_config = None
         selected_ip_record = None
+
+        # Check public_ip_enabled feature flag for public network bridges
+        if bridge and bridge.is_public_network:
+            can_use_public_ip = FeatureFlagService.resolve_flag(
+                "public_ip_enabled", global_flags, user_flags, None
+            )
+            if not can_use_public_ip:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Tính năng IP Public đã bị tắt cho tài khoản của bạn",
+                )
+
         if vm_data.ip_pool_id:
             _ip_service = importlib.import_module("app.services.user-ip-address-service")
             UserIpAddressService = _ip_service.UserIpAddressService

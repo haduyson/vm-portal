@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from pydantic import BaseModel, field_validator
 import re
@@ -44,6 +44,7 @@ class AdminUserResponse(BaseModel):
     max_ram_gb: Optional[int]
     max_vms: Optional[int]
     max_cpu_cores: Optional[int]
+    feature_flags: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
@@ -58,6 +59,7 @@ class AdminUserUpdate(BaseModel):
     max_ram_gb: Optional[int] = None
     max_vms: Optional[int] = None
     max_cpu_cores: Optional[int] = None
+    feature_flags: Optional[Dict[str, Any]] = None
 
 
 class AdminVMResponse(VMResponse):

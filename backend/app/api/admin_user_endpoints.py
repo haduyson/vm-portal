@@ -124,6 +124,7 @@ async def list_all_users(
             created_at=user.created_at, vm_count=vm_count,
             max_disk_gb=user.max_disk_gb, max_ram_gb=user.max_ram_gb,
             max_vms=user.max_vms, max_cpu_cores=user.max_cpu_cores,
+            feature_flags=user.feature_flags,
         )
         for user, vm_count in rows
     ]
@@ -193,6 +194,8 @@ async def update_user(
         user.max_vms = user_update.max_vms
     if user_update.max_cpu_cores is not None:
         user.max_cpu_cores = user_update.max_cpu_cores
+    if user_update.feature_flags is not None:
+        user.feature_flags = user_update.feature_flags
 
     await session.commit()
     await session.refresh(user)
@@ -208,6 +211,7 @@ async def update_user(
         created_at=user.created_at, vm_count=vm_count,
         max_disk_gb=user.max_disk_gb, max_ram_gb=user.max_ram_gb,
         max_vms=user.max_vms, max_cpu_cores=user.max_cpu_cores,
+        feature_flags=user.feature_flags,
     )
 
 

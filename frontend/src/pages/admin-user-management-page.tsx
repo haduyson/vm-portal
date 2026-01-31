@@ -41,6 +41,13 @@ import {
 import InputAdornment from '@mui/material/InputAdornment';
 import apiClient from '../services/api-client';
 
+interface FeatureFlags {
+  cloudflare_tunnel_enabled?: boolean;
+  public_ip_enabled?: boolean;
+  email_notifications_enabled?: boolean;
+  telegram_notifications_enabled?: boolean;
+}
+
 interface AdminUser {
   id: number;
   username: string;
@@ -53,6 +60,7 @@ interface AdminUser {
   max_ram_gb: number | null;
   max_vms: number | null;
   max_cpu_cores: number | null;
+  feature_flags?: FeatureFlags | null;
 }
 
 interface UserResourceUsage {
@@ -212,6 +220,7 @@ export default function AdminUserManagementPage() {
       payload.max_ram_gb = editUser.max_ram_gb || null;
       payload.max_vms = editUser.max_vms || null;
       payload.max_cpu_cores = editUser.max_cpu_cores || null;
+      payload.feature_flags = editUser.feature_flags || null;
 
       const response = await apiClient.patch(`/admin/users/${editUser.id}`, payload);
       setUsers((prev) => prev.map((u) => (u.id === editUser.id ? response.data : u)));
@@ -220,6 +229,18 @@ export default function AdminUserManagementPage() {
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Không thể cập nhật người dùng');
     }
+  };
+
+  const handleFeatureFlagChange = (key: keyof FeatureFlags, value: boolean | undefined) => {
+    if (!editUser) return;
+    const currentFlags = editUser.feature_flags || {};
+    const newFlags = { ...currentFlags };
+    if (value === undefined) {
+      delete newFlags[key];
+    } else {
+      newFlags[key] = value;
+    }
+    setEditUser({ ...editUser, feature_flags: Object.keys(newFlags).length > 0 ? newFlags : null });
   };
 
   const handleExpandRow = async (userId: number) => {
@@ -734,6 +755,45 @@ export default function AdminUserManagementPage() {
                 onChange={(e) => setEditUser({ ...editUser, max_cpu_cores: parseInt(e.target.value) || null })}
                 inputProps={{ min: 0 }}
               />
+
+              <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>
+                Feature Flags (Ghi đè cấp user)
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                Bỏ chọn để kế thừa từ cài đặt global. Tích để bật, bỏ tích để tắt.
+              </Typography>
+
+              {[
+                { key: 'cloudflare_tunnel_enabled' as const, label: 'Cloudflare Tunnel' },
+                { key: 'public_ip_enabled' as const, label: 'IP Public' },
+                { key: 'email_notifications_enabled' as const, label: 'Thông báo Email' },
+                { key: 'telegram_notifications_enabled' as const, label: 'Thông báo Telegram' },
+              ].map((feature) => (
+                <Box key={feature.key} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <Checkbox
+                    size="small"
+                    checked={editUser.feature_flags?.[feature.key] !== undefined}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        handleFeatureFlagChange(feature.key, true);
+                      } else {
+                        handleFeatureFlagChange(feature.key, undefined);
+                      }
+                    }}
+                  />
+                  <Typography variant="body2" sx={{ minWidth: 150 }}>{feature.label}</Typography>
+                  {editUser.feature_flags?.[feature.key] !== undefined && (
+                    <Switch
+                      size="small"
+                      checked={editUser.feature_flags?.[feature.key] ?? true}
+                      onChange={(e) => handleFeatureFlagChange(feature.key, e.target.checked)}
+                    />
+                  )}
+                  {editUser.feature_flags?.[feature.key] === undefined && (
+                    <Chip label="Kế thừa" size="small" variant="outlined" />
+                  )}
+                </Box>
+              ))}
             </>
           )}
         </DialogContent>

@@ -74,6 +74,11 @@ interface VMResources {
   disk_total_gb: number;
 }
 
+interface FeatureFlagsData {
+  flags: Record<string, boolean>;
+  sources: Record<string, string>;
+}
+
 export default function VMDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -110,6 +115,10 @@ export default function VMDetailPage() {
   const [resizeRamGb, setResizeRamGb] = useState(1);
   const [resizeDiskGb, setResizeDiskGb] = useState(10);
   const [resizeLoading, setResizeLoading] = useState(false);
+
+  // Feature flags state
+  const [featureFlags, setFeatureFlags] = useState<FeatureFlagsData | null>(null);
+  const [featureFlagsLoading, setFeatureFlagsLoading] = useState(false);
   const [quota, setQuota] = useState<{
     max_vms: number | null; used_vms: number;
     max_disk_gb: number | null; used_disk_gb: number;
@@ -224,7 +233,45 @@ export default function VMDetailPage() {
     if (tabIndex === 5) {
       fetchQuota();
     }
-  }, [tabIndex]);
+    if (tabIndex === 6 && vm) {
+      fetchFeatureFlags();
+    }
+  }, [tabIndex, vm?.id]);
+
+  const fetchFeatureFlags = async () => {
+    if (!vm) return;
+    setFeatureFlagsLoading(true);
+    try {
+      const response = await apiClient.get(`/vms/${vm.id}/feature-flags`);
+      setFeatureFlags(response.data);
+    } catch (error: any) {
+      setSnackbar({ open: true, message: 'Không thể tải feature flags', severity: 'error' });
+    } finally {
+      setFeatureFlagsLoading(false);
+    }
+  };
+
+  const handleUpdateFeatureFlag = async (key: string, value: boolean) => {
+    if (!vm) return;
+    try {
+      const response = await apiClient.put(`/vms/${vm.id}/feature-flags`, { [key]: value });
+      setFeatureFlags(response.data);
+      setSnackbar({ open: true, message: 'Đã cập nhật feature flag', severity: 'success' });
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.detail || 'Lỗi cập nhật', severity: 'error' });
+    }
+  };
+
+  const handleResetFeatureFlag = async (key: string) => {
+    if (!vm) return;
+    try {
+      await apiClient.delete(`/vms/${vm.id}/feature-flags/${key}`);
+      await fetchFeatureFlags();
+      setSnackbar({ open: true, message: 'Đã reset về kế thừa', severity: 'success' });
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.detail || 'Lỗi reset', severity: 'error' });
+    }
+  };
 
   const handleResize = async () => {
     if (!vm) return;
@@ -323,6 +370,7 @@ export default function VMDetailPage() {
           <Tab label="Console" />
           <Tab label="Điều khiển" />
           <Tab label="Nâng cấp" />
+          <Tab label="Feature Flags" />
         </Tabs>
       </Paper>
 
@@ -716,6 +764,79 @@ export default function VMDetailPage() {
                 {resizeLoading ? 'Đang thay đổi...' : 'Áp dụng thay đổi'}
               </Button>
             </>
+          )}
+        </Paper>
+      )}
+
+      {/* Tab 6: Feature Flags */}
+      {tabIndex === 6 && (
+        <Paper sx={{ p: 3 }}>
+          <Typography variant="h6" gutterBottom>Feature Flags</Typography>
+          <Divider sx={{ mb: 2 }} />
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Các tính năng có thể bật/tắt cho VM này. Nếu không ghi đè, sẽ kế thừa từ cấp user hoặc global.
+          </Typography>
+
+          {featureFlagsLoading ? (
+            <LinearProgress />
+          ) : featureFlags ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {[
+                { key: 'cloudflare_tunnel_enabled', label: 'Cloudflare Tunnel', desc: 'Cho phép tạo SSH subdomain qua CF Tunnel' },
+                { key: 'public_ip_enabled', label: 'IP Public', desc: 'Cho phép sử dụng mạng IP public' },
+                { key: 'email_notifications_enabled', label: 'Thông báo Email', desc: 'Gửi thông báo qua email' },
+                { key: 'telegram_notifications_enabled', label: 'Thông báo Telegram', desc: 'Gửi thông báo qua Telegram' },
+              ].map((feature) => (
+                <Box
+                  key={feature.key}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    p: 2,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: 1,
+                  }}
+                >
+                  <Box>
+                    <Typography variant="body1">{feature.label}</Typography>
+                    <Typography variant="caption" color="text.secondary">{feature.desc}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Chip
+                      label={featureFlags.sources[feature.key] === 'vm' ? 'VM' :
+                             featureFlags.sources[feature.key] === 'user' ? 'User' :
+                             featureFlags.sources[feature.key] === 'global' ? 'Global' : 'Default'}
+                      size="small"
+                      color={featureFlags.sources[feature.key] === 'vm' ? 'primary' : 'default'}
+                      variant={featureFlags.sources[feature.key] === 'vm' ? 'filled' : 'outlined'}
+                    />
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={featureFlags.flags[feature.key]}
+                          onChange={(e) => handleUpdateFeatureFlag(feature.key, e.target.checked)}
+                        />
+                      }
+                      label={featureFlags.flags[feature.key] ? 'Bật' : 'Tắt'}
+                      sx={{ ml: 1 }}
+                    />
+                    {featureFlags.sources[feature.key] === 'vm' && (
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => handleResetFeatureFlag(feature.key)}
+                      >
+                        Reset
+                      </Button>
+                    )}
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+          ) : (
+            <Alert severity="info">Không thể tải feature flags</Alert>
           )}
         </Paper>
       )}
