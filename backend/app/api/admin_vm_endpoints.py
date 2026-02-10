@@ -166,14 +166,16 @@ async def admin_delete_vm(
 
     try:
         proxmox = await create_proxmox_service_for_vm(vm, session)
-        # Stop VM first if running (wait up to 30s)
+        # Stop VM first if running (wait up to 60s)
         try:
-            await proxmox.stop_vm(vm.vmid)
-            for _ in range(6):
-                await asyncio.sleep(5)
-                status = await proxmox.get_vm_status(vm.vmid)
-                if status.get("status") == "stopped":
-                    break
+            vm_status = await proxmox.get_vm_status(vm.vmid)
+            if vm_status.get("status") == "running":
+                await proxmox.stop_vm(vm.vmid)
+                for _ in range(12):  # 60s timeout
+                    await asyncio.sleep(5)
+                    vm_status = await proxmox.get_vm_status(vm.vmid)
+                    if vm_status.get("status") == "stopped":
+                        break
         except Exception:
             pass
         await proxmox.delete_vm(vm.vmid)
