@@ -217,6 +217,9 @@ async def update_profile(
     if profile_update.notification_preference is not None:
         current_user.notification_preference = profile_update.notification_preference
 
+    if profile_update.tailscale_email is not None:
+        current_user.tailscale_email = profile_update.tailscale_email
+
     await session.commit()
     await session.refresh(current_user)
     return UserResponse.from_user(current_user)

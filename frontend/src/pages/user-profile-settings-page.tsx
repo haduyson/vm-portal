@@ -30,6 +30,7 @@ export default function UserProfileSettingsPage() {
   const [telegramChatId, setTelegramChatId] = useState(user?.telegram_chat_id || '');
   const [email, setEmail] = useState(user?.email || '');
   const [notificationPreference, setNotificationPreference] = useState(user?.notification_preference || 'telegram');
+  const [tailscaleEmail, setTailscaleEmail] = useState(user?.tailscale_email || '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -61,6 +62,10 @@ export default function UserProfileSettingsPage() {
 
       if (notificationPreference !== (user?.notification_preference || 'telegram')) {
         updateData.notification_preference = notificationPreference;
+      }
+
+      if (tailscaleEmail !== (user?.tailscale_email || '')) {
+        updateData.tailscale_email = tailscaleEmail;
       }
 
       if (newPassword) {
@@ -159,6 +164,21 @@ export default function UserProfileSettingsPage() {
                 <MenuItem value="both">Cả hai (Telegram + Email)</MenuItem>
               </Select>
             </FormControl>
+
+            <Divider sx={{ my: 2 }} />
+
+            <Typography variant="h6" sx={{ mt: 2 }}>
+              Tailscale VPN (Tùy chọn)
+            </Typography>
+
+            <TextField
+              label="Tailscale Email"
+              type="email"
+              value={tailscaleEmail}
+              onChange={(e) => setTailscaleEmail(e.target.value)}
+              fullWidth
+              helperText="Email tài khoản Tailscale. Khi tạo VM mới, bạn sẽ nhận được thông báo để accept share request trong Tailscale app."
+            />
 
             <Divider sx={{ my: 2 }} />
 

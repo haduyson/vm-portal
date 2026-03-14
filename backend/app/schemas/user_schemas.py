@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, EmailStr, field_validator
 import re
 
 
@@ -35,6 +35,7 @@ class UserResponse(BaseModel):
     telegram_chat_id: Optional[str]
     email: Optional[str] = None
     notification_preference: str = "telegram"  # telegram | email | both
+    tailscale_email: Optional[str] = None  # For auto-share VMs via Tailscale
     is_admin: bool
     has_2fa: bool = False
     created_at: datetime
@@ -50,6 +51,7 @@ class UserResponse(BaseModel):
             telegram_chat_id=user.telegram_chat_id,
             email=getattr(user, "email", None),
             notification_preference=getattr(user, "notification_preference", None) or "telegram",
+            tailscale_email=getattr(user, "tailscale_email", None),
             is_admin=user.is_admin,
             has_2fa=bool(user.totp_secret),
             created_at=user.created_at,
@@ -67,8 +69,9 @@ class ProfileUpdate(BaseModel):
     current_password: Optional[str] = None
     new_password: Optional[str] = None
     telegram_chat_id: Optional[str] = None
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     notification_preference: Optional[str] = None  # telegram | email | both
+    tailscale_email: Optional[EmailStr] = None  # Tailscale account email for auto-share
 
     @field_validator('notification_preference')
     @classmethod

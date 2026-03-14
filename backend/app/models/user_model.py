@@ -23,4 +23,5 @@ class User(Base):
     totp_secret = Column(String, nullable=True)  # null = 2FA not enabled
     temp_password_expires_at = Column(DateTime, nullable=True)  # null = no temp password
     feature_flags = Column(JSON, nullable=True)  # User-level feature toggles
+    tailscale_email = Column(String(255), nullable=True)  # Tailscale email for auto-share VMs
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

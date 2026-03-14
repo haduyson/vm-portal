@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
     max_cpu_cores INTEGER,
     totp_secret VARCHAR(255),
     temp_password_expires_at TIMESTAMP,
+    tailscale_email VARCHAR(255),
     created_at TIMESTAMP DEFAULT NOW()
 );
 

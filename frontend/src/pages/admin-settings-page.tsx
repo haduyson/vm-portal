@@ -52,6 +52,8 @@ interface AllSettings {
   auto_assign_ip_subdomain: string;
   tailscale_auto_install_enabled: string;
   tailscale_auth_key: string;
+  tailscale_api_token_masked: string;
+  tailscale_tailnet: string;
 }
 
 interface OsTemplate {
@@ -86,7 +88,11 @@ export default function AdminSettingsPage() {
   const [autoAssignIpSubdomain, setAutoAssignIpSubdomain] = useState(false);
   const [tailscaleAutoInstall, setTailscaleAutoInstall] = useState(false);
   const [tailscaleAuthKey, setTailscaleAuthKey] = useState('');
+  const [tailscaleApiToken, setTailscaleApiToken] = useState('');
+  const [tailscaleApiTokenMasked, setTailscaleApiTokenMasked] = useState('');
+  const [tailscaleTailnet, setTailscaleTailnet] = useState('');
   const [showTailscaleKey, setShowTailscaleKey] = useState(false);
+  const [showTailscaleApiToken, setShowTailscaleApiToken] = useState(false);
   const [refreshExpiry, setRefreshExpiry] = useState('7');
   const [tempPasswordExpiry, setTempPasswordExpiry] = useState('60');
   const [loading, setLoading] = useState(false);
@@ -134,6 +140,8 @@ export default function AdminSettingsPage() {
       setAutoAssignIpSubdomain(data.auto_assign_ip_subdomain === 'true');
       setTailscaleAutoInstall(data.tailscale_auto_install_enabled === 'true');
       setTailscaleAuthKey(data.tailscale_auth_key || '');
+      setTailscaleApiTokenMasked(data.tailscale_api_token_masked || '');
+      setTailscaleTailnet(data.tailscale_tailnet || '');
       setRefreshExpiry(data.refresh_token_expiry_days || '7');
       setTempPasswordExpiry(data.temp_password_expiry_minutes || '60');
     } catch {
@@ -153,9 +161,14 @@ export default function AdminSettingsPage() {
         auto_assign_ip_subdomain: autoAssignIpSubdomain ? 'true' : 'false',
         tailscale_auto_install_enabled: tailscaleAutoInstall ? 'true' : 'false',
         tailscale_auth_key: tailscaleAuthKey,
+        tailscale_tailnet: tailscaleTailnet,
         refresh_token_expiry_days: refreshExpiry,
         temp_password_expiry_minutes: tempPasswordExpiry,
       };
+      // Only include API token if user entered a new one
+      if (tailscaleApiToken) {
+        payload.tailscale_api_token = tailscaleApiToken;
+      }
 
       await apiClient.put('/admin/settings', payload);
       setSuccessMessage('Đã lưu cài đặt thành công');
@@ -434,6 +447,53 @@ export default function AdminSettingsPage() {
                       disabled={!tailscaleAutoInstall}
                     >
                       {showTailscaleKey ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
+
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+              Auto-Share (tùy chọn) - Tự động chia sẻ VM cho user qua Tailscale
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Nếu cấu hình, khi tạo VM xong, user sẽ nhận được thông báo trong Tailscale app để accept share request.
+            </Typography>
+
+            <TextField
+              fullWidth
+              label="Tailnet Name"
+              value={tailscaleTailnet}
+              onChange={(e) => setTailscaleTailnet(e.target.value)}
+              placeholder="yourname.gmail.com hoặc your-org.com"
+              helperText="Tên Tailnet của bạn (thường là email hoặc tên tổ chức)"
+              disabled={!tailscaleAutoInstall}
+              sx={{ mb: 2 }}
+            />
+
+            <TextField
+              fullWidth
+              label="Tailscale API Token"
+              value={tailscaleApiToken || ''}
+              onChange={(e) => setTailscaleApiToken(e.target.value)}
+              placeholder={tailscaleApiTokenMasked || 'tskey-api-xxx (để trống nếu không đổi)'}
+              helperText={
+                tailscaleApiTokenMasked
+                  ? `Đã lưu: ${tailscaleApiTokenMasked}. Nhập mới để thay đổi.`
+                  : 'Tạo từ login.tailscale.com/admin → Settings → Keys → OAuth clients'
+              }
+              type={showTailscaleApiToken ? 'text' : 'password'}
+              disabled={!tailscaleAutoInstall}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowTailscaleApiToken(!showTailscaleApiToken)}
+                      edge="end"
+                      disabled={!tailscaleAutoInstall}
+                    >
+                      {showTailscaleApiToken ? <VisibilityOffIcon /> : <VisibilityIcon />}
                     </IconButton>
                   </InputAdornment>
                 ),

@@ -21,10 +21,16 @@ import {
   Chip,
   TextField,
   FormControlLabel,
+  FormControl,
   Checkbox,
   TablePagination,
   Collapse,
   LinearProgress,
+  Radio,
+  RadioGroup,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import {
   Delete as DeleteIcon,
@@ -79,6 +85,8 @@ export default function AdminUserManagementPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null);
+  const [deleteAction, setDeleteAction] = useState<'delete' | 'transfer'>('delete');
+  const [transferToUserId, setTransferToUserId] = useState<number | ''>('');
   const [createDialog, setCreateDialog] = useState(false);
   const [editDialog, setEditDialog] = useState(false);
   const [editUser, setEditUser] = useState<AdminUser | null>(null);
@@ -154,9 +162,14 @@ export default function AdminUserManagementPage() {
     if (!deleteTarget) return;
     try {
       setError('');
-      await apiClient.delete(`/admin/users/${deleteTarget.id}`);
+      const params = deleteAction === 'transfer' && transferToUserId
+        ? `?transfer_to_user_id=${transferToUserId}`
+        : '';
+      await apiClient.delete(`/admin/users/${deleteTarget.id}${params}`);
       setUsers((prev) => prev.filter((u) => u.id !== deleteTarget.id));
       setDeleteTarget(null);
+      setDeleteAction('delete');
+      setTransferToUserId('');
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Không thể xóa người dùng');
       setDeleteTarget(null);
@@ -515,18 +528,58 @@ export default function AdminUserManagementPage() {
         />
       </TableContainer>
 
-      <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
-        <DialogTitle>Xác nhận xóa</DialogTitle>
+      <Dialog open={!!deleteTarget} onClose={() => { setDeleteTarget(null); setDeleteAction('delete'); setTransferToUserId(''); }} maxWidth="sm" fullWidth>
+        <DialogTitle>Xác nhận xóa người dùng</DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            Bạn có chắc muốn xóa người dùng "{deleteTarget?.username}"? Tất cả
-            VM của họ cũng sẽ bị xóa.
+          <DialogContentText sx={{ mb: 2 }}>
+            Bạn có chắc muốn xóa người dùng "<strong>{deleteTarget?.username}</strong>"?
           </DialogContentText>
+
+          <FormControl component="fieldset">
+            <RadioGroup value={deleteAction} onChange={(e) => setDeleteAction(e.target.value as 'delete' | 'transfer')}>
+              <FormControlLabel
+                value="delete"
+                control={<Radio />}
+                label="Xóa tất cả VM của người dùng này"
+              />
+              <FormControlLabel
+                value="transfer"
+                control={<Radio />}
+                label="Chuyển VM sang tài khoản khác"
+              />
+            </RadioGroup>
+          </FormControl>
+
+          {deleteAction === 'transfer' && (
+            <FormControl fullWidth sx={{ mt: 2 }}>
+              <InputLabel>Chuyển cho người dùng</InputLabel>
+              <Select
+                value={transferToUserId}
+                label="Chuyển cho người dùng"
+                onChange={(e) => setTransferToUserId(e.target.value as number)}
+              >
+                {users
+                  .filter((u) => u.id !== deleteTarget?.id)
+                  .map((u) => (
+                    <MenuItem key={u.id} value={u.id}>
+                      {u.username} {u.is_admin && '(Admin)'}
+                    </MenuItem>
+                  ))}
+              </Select>
+            </FormControl>
+          )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)}>Hủy</Button>
-          <Button onClick={handleDelete} color="error" variant="contained">
-            Xóa
+          <Button onClick={() => { setDeleteTarget(null); setDeleteAction('delete'); setTransferToUserId(''); }}>
+            Hủy
+          </Button>
+          <Button
+            onClick={handleDelete}
+            color="error"
+            variant="contained"
+            disabled={deleteAction === 'transfer' && !transferToUserId}
+          >
+            {deleteAction === 'transfer' ? 'Chuyển và Xóa' : 'Xóa'}
           </Button>
         </DialogActions>
       </Dialog>

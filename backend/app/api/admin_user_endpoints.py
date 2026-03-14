@@ -1,7 +1,7 @@
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_admin_user, hash_password
@@ -294,10 +294,11 @@ async def get_user_resource_usage(
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: int,
+    transfer_to_user_id: Optional[int] = None,
     admin: User = Depends(get_current_admin_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Delete a user and all their VMs."""
+    """Delete a user. Optionally transfer their VMs to another user."""
     result = await session.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
@@ -307,11 +308,78 @@ async def delete_user(
     if user.id == admin.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Không thể xóa chính mình")
 
-    await log_audit(
-        session, admin.id, "delete_user", "user", user.id,
-        f"Deleted user: {user.username}",
+    # Count user's VMs for audit log
+    vm_count_result = await session.execute(
+        select(func.count()).select_from(VirtualMachine).where(VirtualMachine.user_id == user_id)
     )
+    vm_count = vm_count_result.scalar() or 0
 
-    await session.execute(delete(VirtualMachine).where(VirtualMachine.user_id == user_id))
+    if transfer_to_user_id:
+        # Validate target user exists and is different
+        if transfer_to_user_id == user_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Không thể chuyển VM cho chính người dùng này")
+
+        target_result = await session.execute(select(User).where(User.id == transfer_to_user_id))
+        target_user = target_result.scalar_one_or_none()
+        if not target_user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy người nhận VM")
+
+        # Calculate resources being transferred
+        transfer_stats = await session.execute(
+            select(
+                func.count().label("count"),
+                func.coalesce(func.sum(VirtualMachine.disk_gb), 0).label("disk"),
+                func.coalesce(func.sum(VirtualMachine.memory_gb), 0).label("ram"),
+                func.coalesce(func.sum(VirtualMachine.cores), 0).label("cpu"),
+            ).where(VirtualMachine.user_id == user_id)
+        )
+        stats = transfer_stats.one()
+
+        # Get target user's current usage
+        target_usage = await session.execute(
+            select(
+                func.count().label("count"),
+                func.coalesce(func.sum(VirtualMachine.disk_gb), 0).label("disk"),
+                func.coalesce(func.sum(VirtualMachine.memory_gb), 0).label("ram"),
+                func.coalesce(func.sum(VirtualMachine.cores), 0).label("cpu"),
+            ).where(VirtualMachine.user_id == transfer_to_user_id)
+        )
+        current = target_usage.one()
+
+        # Validate quotas (None = unlimited)
+        new_vms = current.count + stats.count
+        new_disk = current.disk + stats.disk
+        new_ram = current.ram + stats.ram
+        new_cpu = current.cpu + stats.cpu
+
+        if target_user.max_vms is not None and new_vms > target_user.max_vms:
+            raise HTTPException(status_code=400, detail=f"Người nhận vượt quota VM ({new_vms}/{target_user.max_vms})")
+        if target_user.max_disk_gb is not None and new_disk > target_user.max_disk_gb:
+            raise HTTPException(status_code=400, detail=f"Người nhận vượt quota disk ({new_disk}/{target_user.max_disk_gb} GB)")
+        if target_user.max_ram_gb is not None and new_ram > target_user.max_ram_gb:
+            raise HTTPException(status_code=400, detail=f"Người nhận vượt quota RAM ({new_ram}/{target_user.max_ram_gb} GB)")
+        if target_user.max_cpu_cores is not None and new_cpu > target_user.max_cpu_cores:
+            raise HTTPException(status_code=400, detail=f"Người nhận vượt quota CPU ({new_cpu}/{target_user.max_cpu_cores} cores)")
+
+        # Transfer VMs to target user
+        await session.execute(
+            update(VirtualMachine)
+            .where(VirtualMachine.user_id == user_id)
+            .values(user_id=transfer_to_user_id)
+        )
+
+        await log_audit(
+            session, admin.id, "delete_user", "user", user.id,
+            f"Deleted user: {user.username}, transferred {vm_count} VMs to {target_user.username}",
+        )
+    else:
+        # Delete VMs
+        await session.execute(delete(VirtualMachine).where(VirtualMachine.user_id == user_id))
+
+        await log_audit(
+            session, admin.id, "delete_user", "user", user.id,
+            f"Deleted user: {user.username} with {vm_count} VMs",
+        )
+
     await session.delete(user)
     await session.commit()

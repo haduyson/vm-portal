@@ -442,6 +442,26 @@ class VMProvisioningService:
                         if ts_result.get("success") and ts_result.get("tailscale_ip"):
                             vm.tailscale_ip = ts_result["tailscale_ip"]
                             print(f"Tailscale installed on VM {vmid}, IP: {vm.tailscale_ip}")
+
+                            # Auto-share to user if they have tailscale_email configured
+                            try:
+                                user_result = await session.execute(
+                                    select(User).where(User.id == user_id)
+                                )
+                                owner = user_result.scalar_one_or_none()
+                                if owner and owner.tailscale_email:
+                                    ts_api_token = await get_setting(session, "tailscale_api_token")
+                                    ts_tailnet = await get_setting(session, "tailscale_tailnet")
+                                    if ts_api_token and ts_tailnet:
+                                        share_result = await TailscaleInstallationService.auto_share_vm_to_user(
+                                            ts_tailnet, ts_api_token, vm.tailscale_ip, owner.tailscale_email
+                                        )
+                                        if share_result.get("success"):
+                                            print(f"Tailscale share request sent to {owner.tailscale_email}")
+                                        else:
+                                            print(f"Warning: Tailscale share failed: {share_result.get('error')}")
+                            except Exception as share_err:
+                                print(f"Warning: Tailscale auto-share error: {share_err}")
                         else:
                             print(f"Warning: Tailscale install failed on VM {vmid}: {ts_result.get('error')}")
                 except Exception as ts_err:

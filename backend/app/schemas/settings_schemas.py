@@ -10,6 +10,8 @@ class AllSettingsResponse(BaseModel):
     auto_assign_ip_subdomain: str
     tailscale_auto_install_enabled: str
     tailscale_auth_key: Optional[str]
+    tailscale_api_token_masked: str  # For device sharing API
+    tailscale_tailnet: Optional[str]  # Tailnet name for API calls
     telegram_bot_token: Optional[str]
     telegram_bot_token_masked: str
     telegram_default_chat_id: Optional[str]
@@ -25,6 +27,8 @@ class AllSettingsUpdate(BaseModel):
     auto_assign_ip_subdomain: Optional[str] = None
     tailscale_auto_install_enabled: Optional[str] = None
     tailscale_auth_key: Optional[str] = None
+    tailscale_api_token: Optional[str] = None  # For device sharing API
+    tailscale_tailnet: Optional[str] = None  # Tailnet name (e.g., yourname.gmail.com)
     telegram_bot_token: Optional[str] = None
     telegram_default_chat_id: Optional[str] = None
     telegram_portal_url: Optional[str] = None

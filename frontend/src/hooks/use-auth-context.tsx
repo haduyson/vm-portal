@@ -8,6 +8,7 @@ interface UserInfo {
   telegram_chat_id?: string | null;
   email?: string | null;
   notification_preference?: string;
+  tailscale_email?: string | null;
   has_2fa?: boolean;
 }
 
@@ -38,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             telegram_chat_id: res.data.telegram_chat_id,
             email: res.data.email,
             notification_preference: res.data.notification_preference,
+            tailscale_email: res.data.tailscale_email,
             has_2fa: res.data.has_2fa,
           });
         })

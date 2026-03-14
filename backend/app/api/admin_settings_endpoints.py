@@ -55,6 +55,14 @@ async def get_all_settings(
 
     tailscale_enabled = await get_setting(session, "tailscale_auto_install_enabled") or "false"
     tailscale_key = await get_setting(session, "tailscale_auth_key") or ""
+    tailscale_api_token = await get_setting(session, "tailscale_api_token") or ""
+    tailscale_tailnet = await get_setting(session, "tailscale_tailnet") or ""
+
+    # Mask API token
+    if tailscale_api_token and len(tailscale_api_token) > 4:
+        tailscale_api_token_masked = "*" * (len(tailscale_api_token) - 4) + tailscale_api_token[-4:]
+    else:
+        tailscale_api_token_masked = "****" if tailscale_api_token else ""
 
     return AllSettingsResponse(
         feature_novnc_console=await _get_setting_with_default(session, "feature_novnc_console"),
@@ -64,6 +72,8 @@ async def get_all_settings(
         auto_assign_ip_subdomain=await _get_setting_with_default(session, "auto_assign_ip_subdomain"),
         tailscale_auto_install_enabled=tailscale_enabled,
         tailscale_auth_key=tailscale_key,
+        tailscale_api_token_masked=tailscale_api_token_masked,
+        tailscale_tailnet=tailscale_tailnet,
         telegram_bot_token=bot_token,
         telegram_bot_token_masked=masked_token,
         telegram_default_chat_id=telegram_config["default_chat_id"],
@@ -108,6 +118,14 @@ async def update_all_settings(
     if settings_update.tailscale_auth_key is not None:
         await set_setting(session, "tailscale_auth_key", settings_update.tailscale_auth_key)
         changes.append("Updated tailscale_auth_key")
+
+    if settings_update.tailscale_api_token is not None:
+        await set_setting(session, "tailscale_api_token", settings_update.tailscale_api_token)
+        changes.append("Updated tailscale_api_token")
+
+    if settings_update.tailscale_tailnet is not None:
+        await set_setting(session, "tailscale_tailnet", settings_update.tailscale_tailnet)
+        changes.append(f"tailscale_tailnet={settings_update.tailscale_tailnet}")
 
     if settings_update.telegram_bot_token is not None:
         await set_setting(session, "telegram_bot_token", settings_update.telegram_bot_token)
