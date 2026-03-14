@@ -14,6 +14,7 @@ from app.schemas.settings_schemas import (
 from app.services.system_settings_service import get_telegram_config, get_setting, set_setting
 from app.services.telegram_notifier import TelegramNotifier
 from app.api.admin_shared_helpers import log_audit
+from app.core.credential_encryption import encrypt_credential
 
 _email_schemas = importlib.import_module("app.schemas.email-settings-schemas")
 EmailSettingsResponse = _email_schemas.EmailSettingsResponse
@@ -116,11 +117,15 @@ async def update_all_settings(
         changes.append(f"tailscale_auto_install_enabled={settings_update.tailscale_auto_install_enabled}")
 
     if settings_update.tailscale_auth_key is not None:
-        await set_setting(session, "tailscale_auth_key", settings_update.tailscale_auth_key)
+        # Encrypt sensitive auth key before storing
+        encrypted_auth_key = encrypt_credential(settings_update.tailscale_auth_key)
+        await set_setting(session, "tailscale_auth_key", encrypted_auth_key)
         changes.append("Updated tailscale_auth_key")
 
     if settings_update.tailscale_api_token is not None:
-        await set_setting(session, "tailscale_api_token", settings_update.tailscale_api_token)
+        # Encrypt sensitive API token before storing
+        encrypted_api_token = encrypt_credential(settings_update.tailscale_api_token)
+        await set_setting(session, "tailscale_api_token", encrypted_api_token)
         changes.append("Updated tailscale_api_token")
 
     if settings_update.tailscale_tailnet is not None:

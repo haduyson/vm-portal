@@ -429,7 +429,8 @@ class VMProvisioningService:
                 try:
                     from app.services.system_settings_service import get_setting
                     tailscale_enabled = await get_setting(session, "tailscale_auto_install_enabled")
-                    tailscale_auth_key = await get_setting(session, "tailscale_auth_key")
+                    tailscale_auth_key_encrypted = await get_setting(session, "tailscale_auth_key")
+                    tailscale_auth_key = decrypt_credential(tailscale_auth_key_encrypted) if tailscale_auth_key_encrypted else None
 
                     if tailscale_enabled == "true" and tailscale_auth_key:
                         print(f"Auto-installing Tailscale on VM {vmid}...")
@@ -450,7 +451,8 @@ class VMProvisioningService:
                                 )
                                 owner = user_result.scalar_one_or_none()
                                 if owner and owner.tailscale_email:
-                                    ts_api_token = await get_setting(session, "tailscale_api_token")
+                                    ts_api_token_encrypted = await get_setting(session, "tailscale_api_token")
+                                    ts_api_token = decrypt_credential(ts_api_token_encrypted) if ts_api_token_encrypted else None
                                     ts_tailnet = await get_setting(session, "tailscale_tailnet")
                                     if ts_api_token and ts_tailnet:
                                         share_result = await TailscaleInstallationService.auto_share_vm_to_user(
