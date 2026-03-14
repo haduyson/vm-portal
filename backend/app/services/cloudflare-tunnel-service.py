@@ -265,6 +265,22 @@ class CloudflareTunnelService:
         await self._remove_ingress_from_tunnel(full_domain)
         await self._delete_dns_cname(subdomain)
 
+    async def cleanup_vm_tunnels(self, vm_name: str, web_domain: str | None = None):
+        """Cleanup all tunnels for a VM (HTTP + SSH subdomains)."""
+        # Cleanup HTTP subdomain
+        if web_domain and web_domain.endswith(f".{self.base_domain}"):
+            web_sub = web_domain.replace(f".{self.base_domain}", "")
+            try:
+                await self.remove_ssh_ingress(web_sub)
+            except Exception:
+                pass
+        # Cleanup SSH subdomain ({vm_name}.ssh.{domain})
+        ssh_sub = f"{vm_name.lower()}.ssh"
+        try:
+            await self.remove_ssh_ingress(ssh_sub)
+        except Exception:
+            pass
+
     # Keep local config methods for backward compatibility but they're not used with remote management
     async def reload_cloudflared(self):
         """Restart cloudflared service (not needed with remote management)."""

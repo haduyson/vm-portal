@@ -679,44 +679,19 @@ async def delete_vm(
         except Exception:
             pass  # Non-critical cleanup
 
-        # Cleanup Cloudflare tunnel for HTTP subdomain
-        if vm.web_domain:
-            try:
-                # Find matching CloudflareDomain
-                _cf_domain_model = importlib.import_module("app.models.cloudflare-domain-model")
-                CloudflareDomain = _cf_domain_model.CloudflareDomain
-
-                domains_result = await session.execute(
-                    select(CloudflareDomain).where(CloudflareDomain.is_active == True)
+        # Cleanup Cloudflare tunnels (HTTP + SSH)
+        try:
+            _cf_domain_model = importlib.import_module("app.models.cloudflare-domain-model")
+            CloudflareDomain = _cf_domain_model.CloudflareDomain
+            domains_result = await session.execute(select(CloudflareDomain).where(CloudflareDomain.is_active == True))
+            for d in domains_result.scalars().all():
+                cf_service = CloudflareTunnelService(
+                    api_token=d.cf_api_token, zone_id=d.cf_zone_id, tunnel_id=d.cf_tunnel_id,
+                    tunnel_name=d.cf_tunnel_name, base_domain=d.domain, config_path=d.cloudflared_config_path,
                 )
-                domains = domains_result.scalars().all()
-
-                for d in domains:
-                    cf_service = CloudflareTunnelService(
-                        api_token=d.cf_api_token,
-                        zone_id=d.cf_zone_id,
-                        tunnel_id=d.cf_tunnel_id,
-                        tunnel_name=d.cf_tunnel_name,
-                        base_domain=d.domain,
-                        config_path=d.cloudflared_config_path,
-                    )
-
-                    # Cleanup HTTP subdomain
-                    if vm.web_domain and vm.web_domain.endswith(f".{d.domain}"):
-                        web_subdomain = vm.web_domain.replace(f".{d.domain}", "")
-                        await cf_service.remove_ssh_ingress(web_subdomain)
-                        print(f"Cleaned up HTTP tunnel for {vm.web_domain}")
-
-                    # Cleanup SSH subdomain ({vm.name}.ssh.{domain})
-                    ssh_subdomain = f"{vm.name.lower()}.ssh"
-                    try:
-                        await cf_service.remove_ssh_ingress(ssh_subdomain)
-                        print(f"Cleaned up SSH tunnel for {ssh_subdomain}.{d.domain}")
-                    except Exception:
-                        pass  # SSH subdomain may not exist
-
-            except Exception as cf_err:
-                print(f"Warning: Failed to cleanup CF tunnel: {cf_err}")
+                await cf_service.cleanup_vm_tunnels(vm.name, vm.web_domain)
+        except Exception as cf_err:
+            print(f"Warning: CF cleanup failed: {cf_err}")
 
         # Release IP with retain option
         try:
