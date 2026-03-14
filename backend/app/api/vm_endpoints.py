@@ -693,6 +693,29 @@ async def delete_vm(
         except Exception as cf_err:
             print(f"Warning: CF cleanup failed: {cf_err}")
 
+        # Cleanup Tailscale device if VM has tailscale_ip
+        if vm.tailscale_ip:
+            try:
+                from app.services.system_settings_service import get_setting
+                from app.core.credential_encryption import decrypt_credential
+                _ts_service = importlib.import_module("app.services.tailscale-installation-service")
+                TailscaleInstallationService = _ts_service.TailscaleInstallationService
+
+                ts_api_token_encrypted = await get_setting(session, "tailscale_api_token")
+                ts_api_token = decrypt_credential(ts_api_token_encrypted) if ts_api_token_encrypted else None
+                ts_tailnet = await get_setting(session, "tailscale_tailnet")
+
+                if ts_api_token and ts_tailnet:
+                    result = await TailscaleInstallationService.delete_device_by_ip(
+                        ts_tailnet, ts_api_token, vm.tailscale_ip
+                    )
+                    if result.get("success"):
+                        print(f"Tailscale device deleted for VM {vm.name}")
+                    else:
+                        print(f"Warning: Tailscale cleanup failed: {result.get('error')}")
+            except Exception as ts_err:
+                print(f"Warning: Tailscale cleanup error: {ts_err}")
+
         # Release IP with retain option
         try:
             _ip_service = importlib.import_module("app.services.user-ip-address-service")

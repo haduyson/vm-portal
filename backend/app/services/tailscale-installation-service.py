@@ -211,3 +211,40 @@ class TailscaleInstallationService:
         return await TailscaleInstallationService.share_device_with_user(
             tailnet, api_token, device_id, user_email
         )
+
+    @staticmethod
+    async def delete_device(tailnet: str, api_token: str, device_id: str) -> dict:
+        """Delete a device from Tailscale network."""
+        url = f"https://api.tailscale.com/api/v2/device/{device_id}"
+        headers = {"Authorization": f"Bearer {api_token}"}
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.delete(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status in (200, 204):
+                        logger.info(f"Tailscale device {device_id} deleted")
+                        return {"success": True}
+                    else:
+                        error_text = await resp.text()
+                        logger.warning(f"Tailscale delete device error {resp.status}: {error_text[:200]}")
+                        return {"success": False, "error": f"HTTP {resp.status}"}
+        except aiohttp.ClientError as e:
+            logger.error(f"Tailscale delete device network error: {e}")
+            return {"success": False, "error": str(e)}
+        except Exception as e:
+            logger.error(f"Tailscale delete device unexpected error: {e}")
+            return {"success": False, "error": str(e)}
+
+    @staticmethod
+    async def delete_device_by_ip(tailnet: str, api_token: str, tailscale_ip: str) -> dict:
+        """Delete Tailscale device by its IP address."""
+        if not tailnet or not api_token or not tailscale_ip:
+            return {"success": False, "error": "Missing required parameters"}
+
+        device_id = await TailscaleInstallationService.get_device_id_by_ip(
+            tailnet, api_token, tailscale_ip
+        )
+        if not device_id:
+            return {"success": False, "error": f"Device not found for IP {tailscale_ip}"}
+
+        return await TailscaleInstallationService.delete_device(tailnet, api_token, device_id)
