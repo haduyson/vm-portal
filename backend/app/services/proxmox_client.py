@@ -528,12 +528,25 @@ class ProxmoxService:
 
     async def exec_command_in_guest(self, vmid: int, command: list[str]) -> Dict:
         """Execute command via QEMU guest agent. Returns {"pid": int}."""
-        import base64
+        import shlex
         def _exec():
-            # Proxmox agent exec expects: command as first element, args in input-data
+            # Handle command array properly
+            if isinstance(command, list):
+                # Check if it's a shell command (e.g., ["/bin/sh", "-c", "complex command"])
+                if len(command) >= 3 and command[1] in ["-c", "--command"]:
+                    # Shell with -c: properly quote the command string
+                    shell = command[0]
+                    shell_cmd = command[2]
+                    # Escape single quotes in the command and wrap in single quotes
+                    escaped_cmd = shell_cmd.replace("'", "'\\''")
+                    cmd_str = f"{shell} -c '{escaped_cmd}'"
+                else:
+                    # Regular command: quote each argument properly
+                    cmd_str = " ".join(shlex.quote(arg) for arg in command)
+            else:
+                cmd_str = command
             result = self.proxmox.nodes(self.node).qemu(vmid).agent("exec").post(
-                command=command[0] if command else "/bin/sh",
-                **{"input-data": " ".join(command[1:]) if len(command) > 1 else ""}
+                command=cmd_str
             )
             return result
         return await asyncio.to_thread(_exec)
@@ -543,17 +556,18 @@ class ProxmoxService:
         import base64
         def _get_status():
             result = self.proxmox.nodes(self.node).qemu(vmid).agent("exec-status").get(pid=pid)
-            # Decode base64 output if present
-            if result.get("out-data"):
-                try:
-                    result["out-data"] = base64.b64decode(result["out-data"]).decode("utf-8", errors="replace")
-                except Exception:
-                    pass
-            if result.get("err-data"):
-                try:
-                    result["err-data"] = base64.b64decode(result["err-data"]).decode("utf-8", errors="replace")
-                except Exception:
-                    pass
+            # Proxmox may return data as base64 or plain text depending on version
+            # Only decode if it looks like base64 (no newlines in raw data, valid base64 chars)
+            for key in ["out-data", "err-data"]:
+                if result.get(key) and isinstance(result[key], str):
+                    data = result[key]
+                    # Check if it looks like base64 (no spaces, only base64 chars)
+                    if data and not any(c in data for c in ['\n', ' ', '\t']) and len(data) > 20:
+                        try:
+                            decoded = base64.b64decode(data).decode("utf-8", errors="replace")
+                            result[key] = decoded
+                        except Exception:
+                            pass  # Keep original if decode fails
             return result
         return await asyncio.to_thread(_get_status)
 

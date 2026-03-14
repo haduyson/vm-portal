@@ -235,8 +235,12 @@ export default function AdminVmOverviewPage() {
     setTailscaleLoading(true);
     try {
       const response = await apiClient.post('/admin/vms/batch-install-tailscale', { auth_key: tailscaleAuthKey });
-      const { success_count, total } = response.data;
-      setSnackbar({ open: true, message: `Đã cài Tailscale: ${success_count}/${total} VMs`, severity: 'success' });
+      const { success_count, total, results } = response.data;
+      const failedVMs = results?.filter((r: any) => !r.success).map((r: any) => `${r.name}: ${r.error}`).join(', ');
+      const msg = success_count > 0
+        ? `Đã cài Tailscale: ${success_count}/${total} VMs`
+        : `Không cài được VM nào (${total} VMs). Lỗi: ${failedVMs || 'Guest agent chưa sẵn sàng'}`;
+      setSnackbar({ open: true, message: msg, severity: success_count > 0 ? 'success' : 'error' });
       setTailscaleDialog(false);
       setTailscaleAuthKey('');
       await fetchData();

@@ -30,12 +30,17 @@ import {
   Add as AddIcon,
   Delete as DeleteIcon,
   Search as SearchIcon,
+  Visibility as VisibilityIcon,
+  VisibilityOff as VisibilityOffIcon,
+  Info as InfoIcon,
 } from '@mui/icons-material';
 import {
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
+  InputAdornment,
+  Tooltip,
 } from '@mui/material';
 import apiClient from '../services/api-client';
 
@@ -81,6 +86,7 @@ export default function AdminSettingsPage() {
   const [autoAssignIpSubdomain, setAutoAssignIpSubdomain] = useState(false);
   const [tailscaleAutoInstall, setTailscaleAutoInstall] = useState(false);
   const [tailscaleAuthKey, setTailscaleAuthKey] = useState('');
+  const [showTailscaleKey, setShowTailscaleKey] = useState(false);
   const [refreshExpiry, setRefreshExpiry] = useState('7');
   const [tempPasswordExpiry, setTempPasswordExpiry] = useState('60');
   const [loading, setLoading] = useState(false);
@@ -377,7 +383,28 @@ export default function AdminSettingsPage() {
             </Typography>
 
             <Divider sx={{ my: 2 }} />
-            <Typography variant="subtitle1" gutterBottom>Tailscale</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <Typography variant="subtitle1">Tailscale</Typography>
+              <Tooltip
+                title={
+                  <Box sx={{ p: 1 }}>
+                    <Typography variant="subtitle2" gutterBottom>Hướng dẫn lấy Tailscale Auth Key:</Typography>
+                    <Typography variant="body2">1. Truy cập login.tailscale.com/admin</Typography>
+                    <Typography variant="body2">2. Vào Settings → Keys</Typography>
+                    <Typography variant="body2">3. Click "Generate auth key..."</Typography>
+                    <Typography variant="body2">4. Bật: Reusable, Pre-approved</Typography>
+                    <Typography variant="body2">5. Expiration: chọn "No expiry" hoặc 90 days</Typography>
+                    <Typography variant="body2">6. Copy key (tskey-auth-xxx)</Typography>
+                  </Box>
+                }
+                arrow
+                placement="right"
+              >
+                <IconButton size="small" color="info">
+                  <InfoIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
 
             <FormControlLabel
               control={
@@ -395,9 +422,22 @@ export default function AdminSettingsPage() {
               value={tailscaleAuthKey}
               onChange={(e) => setTailscaleAuthKey(e.target.value)}
               placeholder="tskey-auth-xxxxx"
-              helperText="Lấy từ Tailscale Admin Console → Settings → Keys → Generate auth key (reusable)"
-              type="password"
+              helperText="Khuyến nghị tạo key với 'Reusable' và 'No expiry' để không cần renew"
+              type={showTailscaleKey ? 'text' : 'password'}
               disabled={!tailscaleAutoInstall}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowTailscaleKey(!showTailscaleKey)}
+                      edge="end"
+                      disabled={!tailscaleAutoInstall}
+                    >
+                      {showTailscaleKey ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
             />
           </Stack>
         </CardContent>

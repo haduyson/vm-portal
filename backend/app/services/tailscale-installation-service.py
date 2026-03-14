@@ -29,7 +29,7 @@ class TailscaleInstallationService:
             # Install Tailscale using official script
             result = await proxmox_service.exec_command_wait(
                 vmid,
-                ["/bin/sh", "-c", "curl -fsSL https://tailscale.com/install.sh | sh"],
+                ["/bin/sh", "-c", "curl -fsSL --connect-timeout 30 --max-time 120 https://tailscale.com/install.sh | sh"],
                 timeout=180  # Installation can take time
             )
             if result.get("exitcode") != 0:
