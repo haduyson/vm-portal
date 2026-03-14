@@ -461,8 +461,10 @@ export default function VMListPage() {
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteDialog({ open: false, vmId: null, vmName: '' })}>Hủy</Button>
-          <Button onClick={handleDeleteVM} color="error" variant="contained">Xóa</Button>
+          <Button onClick={() => setDeleteDialog({ open: false, vmId: null, vmName: '' })} disabled={actionLoading === deleteDialog.vmId}>Hủy</Button>
+          <Button onClick={handleDeleteVM} color="error" variant="contained" disabled={actionLoading === deleteDialog.vmId}>
+            {actionLoading === deleteDialog.vmId ? 'Đang xóa...' : 'Xóa'}
+          </Button>
         </DialogActions>
       </Dialog>
 
