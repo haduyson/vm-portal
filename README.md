@@ -23,6 +23,7 @@ Portal nội bộ tiếng Việt cho phép nhân viên tự khởi tạo máy �
 - Tự động gán IP public cho VM mới
 - Cloudflare Tunnel cho SSH từ bên ngoài
 - Cấu hình VLAN trunking
+- **Tailscale VPN** - Auto-install qua QEMU Guest Agent, Batch install cho nhiều VM
 
 ### Thông báo
 - Telegram Bot notifications
@@ -36,6 +37,8 @@ Portal nội bộ tiếng Việt cho phép nhân viên tự khởi tạo máy �
 - Cloudflare Domains management
 - VM Landing Page tùy chỉnh
 - Dark/Light theme
+- **Tailscale Admin Config** - Cấu hình auth key, auto-install, batch operations
+- **VM List Expandable Rows** - Hiển thị Web Domain, OS, Tailscale IP
 
 ## Kiến trúc hệ thống
 
@@ -62,6 +65,7 @@ Portal nội bộ tiếng Việt cho phép nhân viên tự khởi tạo máy �
 | Hypervisor | Proxmox VE 7+ |
 | Notification | Telegram Bot + Email (SMTP/SendGrid/Resend) |
 | SSH Access | Cloudflare Tunnel |
+| VPN | Tailscale (auto-install via QEMU Agent) |
 | Auth | JWT + 2FA (TOTP) |
 
 ---
@@ -276,6 +280,41 @@ Portal sẽ tự động tạo DNS CNAME và cấu hình tunnel cho mỗi VM.
 
 ---
 
+## Cấu hình Tailscale VPN
+
+### Tính năng
+- **Auto-install**: Tự động cài Tailscale khi tạo VM mới (nếu bật)
+- **Batch install**: Cài Tailscale hàng loạt cho các VM hiện có
+- **QEMU Guest Agent**: Thực thi lệnh trong VM qua Proxmox API
+
+### Cấu hình
+
+1. **Lấy Auth Key từ Tailscale:**
+   - Truy cập [Tailscale Admin Console](https://login.tailscale.com/admin/settings/keys)
+   - Tạo **Auth Key** mới (chọn Reusable nếu muốn dùng cho nhiều VM)
+
+2. **Cấu hình trong Portal:**
+   - Admin → **Cài đặt hệ thống** → Mục Tailscale
+   - Bật **"Tự động cài đặt Tailscale"**
+   - Dán Auth Key vào ô **"Tailscale Auth Key"**
+   - Bấm **Lưu**
+
+3. **Batch Install cho VM hiện có:**
+   - Admin → **Quản lý VM** → Bấm **"Batch Tailscale"**
+   - Hệ thống sẽ cài Tailscale cho tất cả VM đang chạy có QEMU Agent
+
+### Yêu cầu
+- VM phải có **QEMU Guest Agent** cài sẵn và đang chạy
+- VM phải có kết nối internet để download Tailscale
+
+### Sử dụng Tailscale SSH
+```bash
+# Từ bất kỳ thiết bị nào trong Tailscale network
+ssh root@100.x.x.x
+```
+
+---
+
 ## Sử dụng
 
 ### Tạo VM
@@ -448,6 +487,7 @@ Internal Vietnamese-language portal allowing employees to self-provision virtual
 - Auto-assign public IP for new VMs
 - Cloudflare Tunnel for external SSH
 - VLAN trunking support
+- **Tailscale VPN** - Auto-install via QEMU Guest Agent, Batch install
 
 ### Notifications
 - Telegram Bot notifications
