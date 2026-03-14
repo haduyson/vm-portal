@@ -97,7 +97,7 @@ class VMProvisioningService:
                 await self.proxmox.set_vm_config(
                     vm.vmid,
                     cores=vm.cores,
-                    memory=vm.memory_mb,
+                    memory=vm.memory_gb * 1024,  # Convert GB to MB for Proxmox
                     net0=net0,  # Network adapter with bridge/VLAN config
                     ide2=f"{vm.storage}:cloudinit",  # Cloud-init drive
                     ipconfig0=ipconfig0,  # DHCP or static IP for cloud-init
@@ -208,7 +208,7 @@ class VMProvisioningService:
                     vmid=vm.vmid,
                     name=vm.name,
                     cores=vm.cores,
-                    memory_mb=vm.memory_mb,
+                    memory_gb=vm.memory_gb,
                     disk_gb=vm.disk_gb,
                     storage=vm.storage,
                     iso=settings.PROXMOX_ISO_IMAGE,
@@ -394,8 +394,8 @@ class VMProvisioningService:
                     except Exception as ip_err:
                         print(f"Warning: Failed to acquire IP ownership: {ip_err}")
 
-                # Setup Cloudflare tunnel for SSH and HTTP if subdomains are pre-set
-                if vm.ssh_domain or vm.web_domain:
+                # Setup Cloudflare tunnel for HTTP if web_domain is pre-set
+                if vm.web_domain:
                     try:
                         _cf_domain_model = importlib.import_module("app.models.cloudflare-domain-model")
                         CloudflareDomain = _cf_domain_model.CloudflareDomain
@@ -416,12 +416,6 @@ class VMProvisioningService:
                                 config_path=d.cloudflared_config_path,
                             )
 
-                            # Setup SSH tunnel
-                            if vm.ssh_domain and vm.ssh_domain.endswith(f".{d.domain}"):
-                                subdomain = vm.ssh_domain.replace(f".{d.domain}", "")
-                                await cf_service.add_ssh_ingress(subdomain, ip_address)
-                                print(f"SSH tunnel configured: {vm.ssh_domain} → {ip_address}")
-
                             # Setup HTTP tunnel for web access
                             if vm.web_domain and vm.web_domain.endswith(f".{d.domain}"):
                                 web_subdomain = vm.web_domain.replace(f".{d.domain}", "")
@@ -430,8 +424,28 @@ class VMProvisioningService:
 
                     except Exception as cf_err:
                         print(f"Warning: Failed to setup CF tunnel: {cf_err}")
-                elif not vm.ssh_domain:
-                    vm.ssh_domain = f"{vm.name}.{settings.CF_TUNNEL_DOMAIN}"
+
+                # Auto-install Tailscale if enabled
+                try:
+                    from app.services.system_settings_service import get_setting
+                    tailscale_enabled = await get_setting(session, "tailscale_auto_install_enabled")
+                    tailscale_auth_key = await get_setting(session, "tailscale_auth_key")
+
+                    if tailscale_enabled == "true" and tailscale_auth_key:
+                        print(f"Auto-installing Tailscale on VM {vmid}...")
+                        _ts_service = importlib.import_module("app.services.tailscale-installation-service")
+                        TailscaleInstallationService = _ts_service.TailscaleInstallationService
+
+                        ts_result = await TailscaleInstallationService.install_and_authenticate(
+                            vmid, self.proxmox, tailscale_auth_key
+                        )
+                        if ts_result.get("success") and ts_result.get("tailscale_ip"):
+                            vm.tailscale_ip = ts_result["tailscale_ip"]
+                            print(f"Tailscale installed on VM {vmid}, IP: {vm.tailscale_ip}")
+                        else:
+                            print(f"Warning: Tailscale install failed on VM {vmid}: {ts_result.get('error')}")
+                except Exception as ts_err:
+                    print(f"Warning: Tailscale auto-install error on VM {vmid}: {ts_err}")
 
                 await session.commit()
 
@@ -451,7 +465,7 @@ class VMProvisioningService:
                     ip_address,
                     vm.ssh_username or "unknown",
                     vm.ssh_password or "unknown",
-                    vm.ssh_domain,
+                    vm.tailscale_ip,
                     vm.web_domain,
                 )
 

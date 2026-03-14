@@ -38,6 +38,8 @@ import {
   Delete as DeleteIcon,
   ContentCopy as CloneIcon,
   Terminal as TerminalIcon,
+  VpnKey as VpnKeyIcon,
+  ContentCopy as ContentCopyIcon,
 } from '@mui/icons-material';
 import apiClient from '../services/api-client';
 import VMStatusChip from '../components/vm-status-chip';
@@ -52,11 +54,11 @@ interface VMDetail {
   name: string;
   status: string;
   cores: number;
-  memory_mb: number;
+  memory_gb: number;
   disk_gb: number;
   os_type: string;
   ip_address: string | null;
-  ssh_domain: string | null;
+  tailscale_ip: string | null;
   web_domain: string | null;
   ssh_username: string | null;
   ssh_password: string | null;
@@ -68,8 +70,8 @@ interface VMDetail {
 
 interface VMResources {
   cpu_percent: number;
-  memory_used_mb: number;
-  memory_total_mb: number;
+  memory_used_gb: number;
+  memory_total_gb: number;
   disk_used_gb: number;
   disk_total_gb: number;
 }
@@ -115,6 +117,15 @@ export default function VMDetailPage() {
   const [resizeRamGb, setResizeRamGb] = useState(1);
   const [resizeDiskGb, setResizeDiskGb] = useState(10);
   const [resizeLoading, setResizeLoading] = useState(false);
+
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setSnackbar({ open: true, message: `Đã sao chép ${label}`, severity: 'success' });
+    } catch {
+      setSnackbar({ open: true, message: 'Không thể sao chép', severity: 'error' });
+    }
+  };
 
   // Feature flags state
   const [featureFlags, setFeatureFlags] = useState<FeatureFlagsData | null>(null);
@@ -224,10 +235,10 @@ export default function VMDetailPage() {
   useEffect(() => {
     if (vm) {
       setResizeCores(vm.cores);
-      setResizeRamGb(Math.round(vm.memory_mb / 1024));
+      setResizeRamGb(vm.memory_gb);
       setResizeDiskGb(vm.disk_gb);
     }
-  }, [vm?.id, vm?.cores, vm?.memory_mb, vm?.disk_gb]);
+  }, [vm?.id, vm?.cores, vm?.memory_gb, vm?.disk_gb]);
 
   useEffect(() => {
     if (tabIndex === 5) {
@@ -279,7 +290,7 @@ export default function VMDetailPage() {
     try {
       const payload: Record<string, number> = {};
       if (resizeCores !== vm.cores) payload.cores = resizeCores;
-      if (resizeRamGb * 1024 !== vm.memory_mb) payload.memory_mb = resizeRamGb * 1024;
+      if (resizeRamGb !== vm.memory_gb) payload.memory_gb = resizeRamGb;
       if (resizeDiskGb !== vm.disk_gb) payload.disk_gb = resizeDiskGb;
 
       if (Object.keys(payload).length === 0) {
@@ -396,7 +407,7 @@ export default function VMDetailPage() {
                 </Box>
                 <Box>
                   <Typography variant="body2" color="text.secondary">RAM</Typography>
-                  <Typography variant="body1">{Math.round(vm.memory_mb / 1024)} GB</Typography>
+                  <Typography variant="body1">{vm.memory_gb} GB</Typography>
                 </Box>
                 <Box>
                   <Typography variant="body2" color="text.secondary">Disk</Typography>
@@ -424,8 +435,8 @@ export default function VMDetailPage() {
                   <Typography variant="body1">{vm.ip_address || 'Chưa có'}</Typography>
                 </Box>
                 <Box>
-                  <Typography variant="body2" color="text.secondary">SSH Domain</Typography>
-                  <Typography variant="body1">{vm.ssh_domain || 'Chưa có'}</Typography>
+                  <Typography variant="body2" color="text.secondary">Tailscale IP</Typography>
+                  <Typography variant="body1">{vm.tailscale_ip || 'Đang kết nối...'}</Typography>
                 </Box>
                 <Box>
                   <Typography variant="body2" color="text.secondary">Web Domain</Typography>
@@ -562,14 +573,14 @@ export default function VMDetailPage() {
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                         <Typography variant="body2">RAM</Typography>
                         <Typography variant="body2" fontWeight="bold">
-                          {resources.memory_used_mb.toFixed(0)} MB / {resources.memory_total_mb.toFixed(0)} MB
-                          ({((resources.memory_used_mb / resources.memory_total_mb) * 100).toFixed(1)}%)
+                          {resources.memory_used_gb.toFixed(2)} GB / {resources.memory_total_gb.toFixed(2)} GB
+                          ({((resources.memory_used_gb / resources.memory_total_gb) * 100).toFixed(1)}%)
                         </Typography>
                       </Box>
                       <LinearProgress
                         variant="determinate"
-                        value={(resources.memory_used_mb / resources.memory_total_mb) * 100}
-                        color={(resources.memory_used_mb / resources.memory_total_mb) > 0.8 ? 'error' : (resources.memory_used_mb / resources.memory_total_mb) > 0.6 ? 'warning' : 'primary'}
+                        value={(resources.memory_used_gb / resources.memory_total_gb) * 100}
+                        color={(resources.memory_used_gb / resources.memory_total_gb) > 0.8 ? 'error' : (resources.memory_used_gb / resources.memory_total_gb) > 0.6 ? 'warning' : 'primary'}
                       />
                     </Box>
                     <Box>
@@ -615,7 +626,7 @@ export default function VMDetailPage() {
           vmStatus={vm.status}
           proxmoxNode={vm.proxmox_node}
           onOpenSSHConsole={() => setSshConsoleOpen(true)}
-          sshDomain={vm.ssh_domain}
+          tailscaleIp={vm.tailscale_ip}
           sshUsername={vm.ssh_username}
           sshPassword={vm.ssh_password}
         />
@@ -655,6 +666,17 @@ export default function VMDetailPage() {
             >
               SSH Console
             </Button>
+            {vm.tailscale_ip && (
+              <Button
+                variant="outlined"
+                color="secondary"
+                startIcon={<VpnKeyIcon />}
+                disabled={vm.status !== 'running'}
+                onClick={() => copyToClipboard(`ssh ${vm.ssh_username || 'root'}@${vm.tailscale_ip}`, 'Tailscale SSH command')}
+              >
+                Tailscale SSH
+              </Button>
+            )}
             <Button
               variant="outlined" color="primary" startIcon={<CloneIcon />}
               disabled={actionLoading}
@@ -670,6 +692,36 @@ export default function VMDetailPage() {
               Xóa VM
             </Button>
           </Box>
+
+          {/* Tailscale Quick Access Section */}
+          {vm.tailscale_ip && (
+            <Box sx={{ mt: 3 }}>
+              <Divider sx={{ mb: 2 }} />
+              <Typography variant="subtitle1" gutterBottom>Truy cập qua Tailscale</Typography>
+              <Alert severity="success" sx={{ mb: 2 }}>
+                VM đã kết nối Tailscale. Bạn có thể SSH trực tiếp từ bất kỳ thiết bị nào có cài Tailscale.
+              </Alert>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                <Chip label={`IP: ${vm.tailscale_ip}`} color="primary" />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ContentCopyIcon />}
+                  onClick={() => copyToClipboard(vm.tailscale_ip!, 'Tailscale IP')}
+                >
+                  Copy IP
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ContentCopyIcon />}
+                  onClick={() => copyToClipboard(`ssh ${vm.ssh_username || 'root'}@${vm.tailscale_ip}`, 'SSH command')}
+                >
+                  Copy SSH Command
+                </Button>
+              </Box>
+            </Box>
+          )}
         </Paper>
       )}
 
@@ -720,7 +772,7 @@ export default function VMDetailPage() {
 
               <Box sx={{ mb: 3 }}>
                 <Typography gutterBottom>
-                  RAM (GB): {resizeRamGb} {resizeRamGb !== Math.round(vm.memory_mb / 1024) && <Chip label={`hiện tại: ${Math.round(vm.memory_mb / 1024)} GB`} size="small" sx={{ ml: 1 }} />}
+                  RAM (GB): {resizeRamGb} {resizeRamGb !== vm.memory_gb && <Chip label={`hiện tại: ${vm.memory_gb} GB`} size="small" sx={{ ml: 1 }} />}
                 </Typography>
                 <Slider
                   value={resizeRamGb}
@@ -757,7 +809,7 @@ export default function VMDetailPage() {
                 variant="contained"
                 color="primary"
                 onClick={handleResize}
-                disabled={resizeLoading || (resizeCores === vm.cores && resizeRamGb === Math.round(vm.memory_mb / 1024) && resizeDiskGb === vm.disk_gb)}
+                disabled={resizeLoading || (resizeCores === vm.cores && resizeRamGb === vm.memory_gb && resizeDiskGb === vm.disk_gb)}
                 fullWidth
                 size="large"
               >
@@ -846,7 +898,7 @@ export default function VMDetailPage() {
         <DialogTitle>Nhân bản VM</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Nhập tên cho bản sao VM mới. VM sẽ được tạo với cùng cấu hình ({vm.cores} CPU, {Math.round(vm.memory_mb / 1024)} GB RAM, {vm.disk_gb} GB Disk).
+            Nhập tên cho bản sao VM mới. VM sẽ được tạo với cùng cấu hình ({vm.cores} CPU, {vm.memory_gb} GB RAM, {vm.disk_gb} GB Disk).
           </DialogContentText>
           <TextField
             autoFocus margin="dense" label="Tên VM mới" fullWidth

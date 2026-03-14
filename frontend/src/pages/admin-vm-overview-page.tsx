@@ -56,11 +56,11 @@ interface AdminVM {
   username: string;
   status: string;
   cores: number;
-  memory_mb: number;
+  memory_gb: number;
   disk_gb: number;
   os_type: string;
   ip_address: string | null;
-  ssh_domain: string | null;
+  tailscale_ip: string | null;
   web_domain: string | null;
   ssh_username: string | null;
   ssh_password: string | null;
@@ -90,6 +90,9 @@ export default function AdminVmOverviewPage() {
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; vmId: number | null; vmName: string }>({ open: false, vmId: null, vmName: '' });
   const [transferDialog, setTransferDialog] = useState<{ open: boolean; vm: AdminVM | null }>({ open: false, vm: null });
+  const [tailscaleDialog, setTailscaleDialog] = useState(false);
+  const [tailscaleAuthKey, setTailscaleAuthKey] = useState('');
+  const [tailscaleLoading, setTailscaleLoading] = useState(false);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | ''>('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
@@ -168,7 +171,7 @@ export default function AdminVmOverviewPage() {
       vm.username,
       vm.status,
       `${vm.cores} cores`,
-      Math.round(vm.memory_mb / 1024),
+      vm.memory_gb,
       vm.disk_gb,
       vm.ip_address || '-',
       new Date(vm.created_at).toLocaleDateString('vi-VN'),
@@ -227,6 +230,23 @@ export default function AdminVmOverviewPage() {
     }
   };
 
+  const handleBatchTailscale = async () => {
+    if (!tailscaleAuthKey) return;
+    setTailscaleLoading(true);
+    try {
+      const response = await apiClient.post('/admin/vms/batch-install-tailscale', { auth_key: tailscaleAuthKey });
+      const { success_count, total } = response.data;
+      setSnackbar({ open: true, message: `Đã cài Tailscale: ${success_count}/${total} VMs`, severity: 'success' });
+      setTailscaleDialog(false);
+      setTailscaleAuthKey('');
+      await fetchData();
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.detail || 'Lỗi batch install', severity: 'error' });
+    } finally {
+      setTailscaleLoading(false);
+    }
+  };
+
   const handleTransferVM = async () => {
     if (!transferDialog.vm || !selectedUserId) return;
     setActionLoading(transferDialog.vm.id);
@@ -259,14 +279,24 @@ export default function AdminVmOverviewPage() {
         <Typography variant="h4">
           Tất Cả Máy Ảo
         </Typography>
-        <Button
-          variant="outlined"
-          startIcon={<DownloadIcon />}
-          onClick={handleExportCSV}
-          size="small"
-        >
-          Xuất CSV
-        </Button>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            variant="contained"
+            color="secondary"
+            onClick={() => setTailscaleDialog(true)}
+            size="small"
+          >
+            Batch Tailscale
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadIcon />}
+            onClick={handleExportCSV}
+            size="small"
+          >
+            Xuất CSV
+          </Button>
+        </Box>
       </Box>
 
       {error && (
@@ -391,7 +421,7 @@ export default function AdminVmOverviewPage() {
                   </TableCell>
                   <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>{vm.cores} cores</TableCell>
                   <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>
-                    {Math.round(vm.memory_mb / 1024)} GB
+                    {vm.memory_gb} GB
                   </TableCell>
                   <TableCell align="right" sx={{ display: { xs: 'none', lg: 'table-cell' } }}>{vm.disk_gb} GB</TableCell>
                   <TableCell sx={{ display: { xs: 'none', lg: 'table-cell' } }}>{vm.ip_address || '-'}</TableCell>
@@ -466,15 +496,15 @@ export default function AdminVmOverviewPage() {
                             </Box>
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Typography variant="body2" sx={{ minWidth: 40 }}>SSH:</Typography>
-                                {vm.ssh_domain ? (
+                                <Typography variant="body2" sx={{ minWidth: 70 }}>Tailscale:</Typography>
+                                {vm.tailscale_ip ? (
                                   <>
-                                    <Chip label={vm.ssh_domain} size="small" color="primary" variant="outlined" />
-                                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); copyToClipboard(vm.ssh_domain!, 'SSH domain'); }}>
+                                    <Chip label={vm.tailscale_ip} size="small" color="primary" variant="outlined" />
+                                    <IconButton size="small" onClick={(e) => { e.stopPropagation(); copyToClipboard(vm.tailscale_ip!, 'Tailscale IP'); }}>
                                       <ContentCopyIcon fontSize="small" />
                                     </IconButton>
                                   </>
-                                ) : <Typography variant="body2" color="text.disabled">-</Typography>}
+                                ) : <Typography variant="body2" color="text.disabled">Đang kết nối...</Typography>}
                               </Box>
                               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                 <Typography variant="body2" sx={{ minWidth: 40 }}>Web:</Typography>
@@ -606,6 +636,30 @@ export default function AdminVmOverviewPage() {
           <Button onClick={() => setDeleteDialog({ open: false, vmId: null, vmName: '' })} disabled={!!actionLoading}>Hủy</Button>
           <Button onClick={handleDeleteVM} color="error" variant="contained" disabled={!!actionLoading}>
             {actionLoading === deleteDialog.vmId ? <><CircularProgress size={16} color="inherit" sx={{ mr: 1 }} /> Đang xóa...</> : 'Xóa'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={tailscaleDialog} onClose={() => !tailscaleLoading && setTailscaleDialog(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Batch Install Tailscale</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            Cài đặt Tailscale cho tất cả VM đang chạy chưa có Tailscale IP.
+          </DialogContentText>
+          <TextField
+            fullWidth
+            label="Tailscale Auth Key"
+            value={tailscaleAuthKey}
+            onChange={(e) => setTailscaleAuthKey(e.target.value)}
+            placeholder="tskey-auth-xxxxx"
+            type="password"
+            disabled={tailscaleLoading}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTailscaleDialog(false)} disabled={tailscaleLoading}>Hủy</Button>
+          <Button onClick={handleBatchTailscale} variant="contained" disabled={!tailscaleAuthKey || tailscaleLoading}>
+            {tailscaleLoading ? 'Đang cài đặt...' : 'Cài đặt'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, Fragment } from 'react';
 import {
   Box,
   Paper,
@@ -27,6 +27,8 @@ import {
   Chip,
   useMediaQuery,
   useTheme,
+  Collapse,
+  Grid,
 } from '@mui/material';
 import {
   AddCircle as AddCircleIcon,
@@ -34,6 +36,12 @@ import {
   Stop as StopIcon,
   Refresh as RefreshIcon,
   Delete as DeleteIcon,
+  KeyboardArrowDown as KeyboardArrowDownIcon,
+  KeyboardArrowUp as KeyboardArrowUpIcon,
+  ContentCopy as ContentCopyIcon,
+  Language as LanguageIcon,
+  Computer as ComputerIcon,
+  VpnKey as VpnKeyIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../services/api-client';
@@ -44,9 +52,12 @@ interface VM {
   name: string;
   status: string;
   cores: number;
-  memory_mb: number;
+  memory_gb: number;
+  disk_gb: number;
+  os_type: string;
   ip_address: string | null;
-  ssh_domain: string | null;
+  tailscale_ip: string | null;
+  web_domain: string | null;
   created_at: string;
 }
 
@@ -59,7 +70,29 @@ export default function VMListPage() {
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; vmId: number | null; vmName: string }>({ open: false, vmId: null, vmName: '' });
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
   const vmsRef = useRef<VM[]>([]);
+
+  const toggleRowExpand = (vmId: number) => {
+    setExpandedRows(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(vmId)) {
+        newSet.delete(vmId);
+      } else {
+        newSet.add(vmId);
+      }
+      return newSet;
+    });
+  };
+
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setSnackbar({ open: true, message: `Đã sao chép ${label}`, severity: 'success' });
+    } catch {
+      setSnackbar({ open: true, message: 'Không thể sao chép', severity: 'error' });
+    }
+  };
 
   const fetchVMs = async () => {
     try {
@@ -232,16 +265,16 @@ export default function VMListPage() {
                 </Box>
                 <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: 'wrap', gap: 0.5 }}>
                   <Chip label={`${vm.cores} CPU`} size="small" variant="outlined" />
-                  <Chip label={`${Math.round(vm.memory_mb / 1024)} GB RAM`} size="small" variant="outlined" />
+                  <Chip label={`${vm.memory_gb} GB RAM`} size="small" variant="outlined" />
                 </Stack>
                 {vm.ip_address && (
                   <Typography variant="body2" color="text.secondary">
                     IP: {vm.ip_address}
                   </Typography>
                 )}
-                {vm.ssh_domain && (
+                {vm.tailscale_ip && (
                   <Typography variant="body2" color="text.secondary">
-                    SSH: {vm.ssh_domain}
+                    Tailscale: {vm.tailscale_ip}
                   </Typography>
                 )}
               </CardContent>
@@ -257,43 +290,163 @@ export default function VMListPage() {
           <Table>
             <TableHead>
               <TableRow>
+                <TableCell padding="checkbox" />
                 <TableCell>Tên VM</TableCell>
                 <TableCell>Trạng thái</TableCell>
                 <TableCell align="right">CPU</TableCell>
                 <TableCell align="right">RAM</TableCell>
                 <TableCell>IP</TableCell>
-                <TableCell>SSH Domain</TableCell>
+                <TableCell>Tailscale IP</TableCell>
                 <TableCell>Ngày tạo</TableCell>
                 <TableCell align="center">Hành động</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {vms.map((vm) => (
-                <TableRow key={vm.id} hover>
-                  <TableCell>
-                    <Link
-                      component="button"
-                      variant="body1"
-                      onClick={() => navigate(`/vms/${vm.id}`)}
-                      sx={{ textAlign: 'left', cursor: 'pointer' }}
-                    >
-                      {vm.name}
-                    </Link>
-                  </TableCell>
-                  <TableCell>
-                    <VMStatusChip status={vm.status} />
-                  </TableCell>
-                  <TableCell align="right">{vm.cores} cores</TableCell>
-                  <TableCell align="right">{Math.round(vm.memory_mb / 1024)} GB</TableCell>
-                  <TableCell>{vm.ip_address || '-'}</TableCell>
-                  <TableCell>{vm.ssh_domain || '-'}</TableCell>
-                  <TableCell>
-                    {new Date(vm.created_at).toLocaleDateString('vi-VN')}
-                  </TableCell>
-                  <TableCell align="center">
-                    {renderVMActions(vm)}
-                  </TableCell>
-                </TableRow>
+                <Fragment key={vm.id}>
+                  <TableRow
+                    hover
+                    sx={{
+                      '& > *': { borderBottom: expandedRows.has(vm.id) ? 'unset' : undefined },
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => toggleRowExpand(vm.id)}
+                  >
+                    <TableCell padding="checkbox">
+                      <IconButton size="small">
+                        {expandedRows.has(vm.id) ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                      </IconButton>
+                    </TableCell>
+                    <TableCell>
+                      <Link
+                        component="button"
+                        variant="body1"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/vms/${vm.id}`); }}
+                        sx={{ textAlign: 'left', cursor: 'pointer' }}
+                      >
+                        {vm.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <VMStatusChip status={vm.status} />
+                    </TableCell>
+                    <TableCell align="right">{vm.cores} cores</TableCell>
+                    <TableCell align="right">{vm.memory_gb} GB</TableCell>
+                    <TableCell>{vm.ip_address || '-'}</TableCell>
+                    <TableCell>{vm.tailscale_ip || '-'}</TableCell>
+                    <TableCell>
+                      {new Date(vm.created_at).toLocaleDateString('vi-VN')}
+                    </TableCell>
+                    <TableCell align="center" onClick={(e) => e.stopPropagation()}>
+                      {renderVMActions(vm)}
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell colSpan={9} sx={{ py: 0, bgcolor: 'action.hover' }}>
+                      <Collapse in={expandedRows.has(vm.id)} timeout="auto" unmountOnExit>
+                        <Box sx={{ py: 2, px: 3 }}>
+                          <Grid container spacing={3}>
+                            {/* Web Domain & Tailscale */}
+                            <Grid item xs={12} md={4}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                <LanguageIcon fontSize="small" color="primary" />
+                                <Typography variant="subtitle2" color="text.secondary">
+                                  Kết nối
+                                </Typography>
+                              </Box>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <Typography variant="body2" sx={{ minWidth: 80 }}>Web Domain:</Typography>
+                                  {vm.web_domain ? (
+                                    <>
+                                      <Chip
+                                        label={vm.web_domain}
+                                        size="small"
+                                        color="success"
+                                        variant="outlined"
+                                        component="a"
+                                        href={`https://${vm.web_domain}`}
+                                        target="_blank"
+                                        clickable
+                                        onClick={(e) => e.stopPropagation()}
+                                      />
+                                      <IconButton
+                                        size="small"
+                                        onClick={(e) => { e.stopPropagation(); copyToClipboard(vm.web_domain!, 'Web domain'); }}
+                                      >
+                                        <ContentCopyIcon fontSize="small" />
+                                      </IconButton>
+                                    </>
+                                  ) : (
+                                    <Typography variant="body2" color="text.disabled">-</Typography>
+                                  )}
+                                </Box>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <Typography variant="body2" sx={{ minWidth: 80 }}>Tailscale:</Typography>
+                                  {vm.tailscale_ip ? (
+                                    <>
+                                      <Chip label={vm.tailscale_ip} size="small" color="primary" variant="outlined" />
+                                      <IconButton
+                                        size="small"
+                                        onClick={(e) => { e.stopPropagation(); copyToClipboard(vm.tailscale_ip!, 'Tailscale IP'); }}
+                                      >
+                                        <ContentCopyIcon fontSize="small" />
+                                      </IconButton>
+                                    </>
+                                  ) : (
+                                    <Typography variant="body2" color="text.disabled">Đang kết nối...</Typography>
+                                  )}
+                                </Box>
+                              </Box>
+                            </Grid>
+
+                            {/* OS & System Info */}
+                            <Grid item xs={12} md={4}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                <ComputerIcon fontSize="small" color="primary" />
+                                <Typography variant="subtitle2" color="text.secondary">
+                                  Hệ thống
+                                </Typography>
+                              </Box>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                <Typography variant="body2">
+                                  OS: <strong>{vm.os_type}</strong>
+                                </Typography>
+                                <Typography variant="body2">
+                                  Disk: <strong>{vm.disk_gb} GB</strong>
+                                </Typography>
+                              </Box>
+                            </Grid>
+
+                            {/* Quick SSH */}
+                            <Grid item xs={12} md={4}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                <VpnKeyIcon fontSize="small" color="primary" />
+                                <Typography variant="subtitle2" color="text.secondary">
+                                  Truy cập nhanh
+                                </Typography>
+                              </Box>
+                              {vm.tailscale_ip && vm.status === 'running' ? (
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  startIcon={<ContentCopyIcon />}
+                                  onClick={(e) => { e.stopPropagation(); copyToClipboard(`ssh root@${vm.tailscale_ip}`, 'SSH command'); }}
+                                >
+                                  Copy SSH Command
+                                </Button>
+                              ) : (
+                                <Typography variant="body2" color="text.disabled">
+                                  {vm.status !== 'running' ? 'VM chưa chạy' : 'Chưa có Tailscale IP'}
+                                </Typography>
+                              )}
+                            </Grid>
+                          </Grid>
+                        </Box>
+                      </Collapse>
+                    </TableCell>
+                  </TableRow>
+                </Fragment>
               ))}
             </TableBody>
           </Table>

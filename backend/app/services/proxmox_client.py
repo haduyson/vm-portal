@@ -168,7 +168,7 @@ class ProxmoxService:
         vmid: int,
         name: str,
         cores: int,
-        memory_mb: int,
+        memory_gb: int,
         disk_gb: int,
         storage: str,
         iso: str,
@@ -176,6 +176,7 @@ class ProxmoxService:
     ) -> Dict:
         """Create a new VM in Proxmox."""
         iso_storage = iso_storage or self.iso_storage
+        memory_mb = memory_gb * 1024  # Convert GB to MB for Proxmox API
 
         def _create_vm():
             return self.proxmox.nodes(self.node).qemu.post(
@@ -396,7 +397,7 @@ class ProxmoxService:
         return await asyncio.to_thread(_set_options)
 
     async def get_vm_resources(self, vmid: int) -> Dict:
-        """Get VM resource usage (CPU, memory, disk)."""
+        """Get VM resource usage (CPU, memory in GB, disk in GB)."""
         def _get_resources():
             try:
                 status = self.proxmox.nodes(self.node).qemu(vmid).status.current.get()
@@ -405,8 +406,8 @@ class ProxmoxService:
 
                 mem_used = status.get('mem', 0)
                 mem_max = status.get('maxmem', 1)
-                memory_used_mb = round(mem_used / (1024 * 1024), 2)
-                memory_total_mb = round(mem_max / (1024 * 1024), 2)
+                memory_used_gb = round(mem_used / (1024 * 1024 * 1024), 2)
+                memory_total_gb = round(mem_max / (1024 * 1024 * 1024), 2)
 
                 disk_used = status.get('disk', 0)
                 disk_max = status.get('maxdisk', 1)
@@ -415,16 +416,16 @@ class ProxmoxService:
 
                 return {
                     'cpu_percent': cpu_percent,
-                    'memory_used_mb': memory_used_mb,
-                    'memory_total_mb': memory_total_mb,
+                    'memory_used_gb': memory_used_gb,
+                    'memory_total_gb': memory_total_gb,
                     'disk_used_gb': disk_used_gb,
                     'disk_total_gb': disk_total_gb,
                 }
             except Exception as e:
                 return {
                     'cpu_percent': 0,
-                    'memory_used_mb': 0,
-                    'memory_total_mb': 0,
+                    'memory_used_gb': 0,
+                    'memory_total_gb': 0,
                     'disk_used_gb': 0,
                     'disk_total_gb': 0,
                 }
@@ -463,7 +464,7 @@ class ProxmoxService:
                         "name": vm.get("name"),
                         "status": vm.get("status"),
                         "cores": vm.get("maxcpu", 0),
-                        "memory_mb": round(vm.get("maxmem", 0) / (1024 * 1024), 2),
+                        "memory_gb": round(vm.get("maxmem", 0) / (1024 * 1024 * 1024), 2),
                         "disk_gb": round(vm.get("maxdisk", 0) / (1024 ** 3), 2),
                         "type": "template",
                     }
@@ -524,6 +525,60 @@ class ProxmoxService:
                 print(f"Error fetching bridges: {e}")
                 return []
         return await asyncio.to_thread(_get)
+
+    async def exec_command_in_guest(self, vmid: int, command: list[str]) -> Dict:
+        """Execute command via QEMU guest agent. Returns {"pid": int}."""
+        import base64
+        def _exec():
+            # Proxmox agent exec expects: command as first element, args in input-data
+            result = self.proxmox.nodes(self.node).qemu(vmid).agent("exec").post(
+                command=command[0] if command else "/bin/sh",
+                **{"input-data": " ".join(command[1:]) if len(command) > 1 else ""}
+            )
+            return result
+        return await asyncio.to_thread(_exec)
+
+    async def get_exec_status(self, vmid: int, pid: int) -> Dict:
+        """Get exec status. Returns {"exited": bool, "exitcode": int, "out-data": str}."""
+        import base64
+        def _get_status():
+            result = self.proxmox.nodes(self.node).qemu(vmid).agent("exec-status").get(pid=pid)
+            # Decode base64 output if present
+            if result.get("out-data"):
+                try:
+                    result["out-data"] = base64.b64decode(result["out-data"]).decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+            if result.get("err-data"):
+                try:
+                    result["err-data"] = base64.b64decode(result["err-data"]).decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+            return result
+        return await asyncio.to_thread(_get_status)
+
+    async def exec_command_wait(self, vmid: int, command: list[str], timeout: int = 300) -> Dict:
+        """Execute command and wait for completion. Returns decoded stdout/stderr."""
+        import time
+        # Start command execution
+        exec_result = await self.exec_command_in_guest(vmid, command)
+        pid = exec_result.get("pid")
+        if not pid:
+            raise Exception("Failed to start command execution")
+
+        # Poll for completion
+        start = time.time()
+        while time.time() - start < timeout:
+            status = await self.get_exec_status(vmid, pid)
+            if status.get("exited"):
+                return {
+                    "exitcode": status.get("exitcode", -1),
+                    "stdout": status.get("out-data", ""),
+                    "stderr": status.get("err-data", ""),
+                }
+            await asyncio.sleep(2)
+
+        raise Exception(f"Command execution timed out after {timeout}s")
 
 
 async def upload_cloud_init_to_proxmox(

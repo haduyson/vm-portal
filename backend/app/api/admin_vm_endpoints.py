@@ -1,3 +1,5 @@
+import asyncio
+import importlib
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -10,9 +12,13 @@ from app.database import get_session
 from app.models.user_model import User
 from app.models.virtual_machine_model import VirtualMachine
 from app.schemas.admin_schemas import AdminVMResponse, AdminStatsResponse
+from app.schemas.vm_schemas import TailscaleInstallRequest, TailscaleInstallResponse
 from app.services.proxmox_client import ProxmoxService, create_proxmox_service_for_vm
 from app.api.admin_shared_helpers import log_audit
 from sqlalchemy import func
+
+_tailscale_service = importlib.import_module("app.services.tailscale-installation-service")
+TailscaleInstallationService = _tailscale_service.TailscaleInstallationService
 
 
 class VMTransferRequest(BaseModel):
@@ -36,9 +42,9 @@ async def list_all_vms(
     return [
         AdminVMResponse(
             id=vm.id, user_id=vm.user_id, vmid=vm.vmid, name=vm.name,
-            cores=vm.cores, memory_mb=vm.memory_mb, disk_gb=vm.disk_gb,
+            cores=vm.cores, memory_gb=vm.memory_gb, disk_gb=vm.disk_gb,
             os_type=vm.os_type, status=vm.status, ip_address=vm.ip_address,
-            ssh_domain=vm.ssh_domain, web_domain=vm.web_domain,
+            tailscale_ip=vm.tailscale_ip, web_domain=vm.web_domain,
             ssh_username=vm.ssh_username, ssh_password=vm.ssh_password,
             proxmox_node=vm.proxmox_node, storage=vm.storage,
             created_at=vm.created_at, updated_at=vm.updated_at, username=username,
@@ -99,9 +105,9 @@ async def admin_start_vm(
 
         return AdminVMResponse(
             id=vm.id, user_id=vm.user_id, vmid=vm.vmid, name=vm.name,
-            cores=vm.cores, memory_mb=vm.memory_mb, disk_gb=vm.disk_gb,
+            cores=vm.cores, memory_gb=vm.memory_gb, disk_gb=vm.disk_gb,
             os_type=vm.os_type, status=vm.status, ip_address=vm.ip_address,
-            ssh_domain=vm.ssh_domain, web_domain=vm.web_domain,
+            tailscale_ip=vm.tailscale_ip, web_domain=vm.web_domain,
             ssh_username=vm.ssh_username, ssh_password=vm.ssh_password,
             proxmox_node=vm.proxmox_node, storage=vm.storage,
             created_at=vm.created_at, updated_at=vm.updated_at, username=username,
@@ -141,9 +147,9 @@ async def admin_stop_vm(
 
         return AdminVMResponse(
             id=vm.id, user_id=vm.user_id, vmid=vm.vmid, name=vm.name,
-            cores=vm.cores, memory_mb=vm.memory_mb, disk_gb=vm.disk_gb,
+            cores=vm.cores, memory_gb=vm.memory_gb, disk_gb=vm.disk_gb,
             os_type=vm.os_type, status=vm.status, ip_address=vm.ip_address,
-            ssh_domain=vm.ssh_domain, web_domain=vm.web_domain,
+            tailscale_ip=vm.tailscale_ip, web_domain=vm.web_domain,
             ssh_username=vm.ssh_username, ssh_password=vm.ssh_password,
             proxmox_node=vm.proxmox_node, storage=vm.storage,
             created_at=vm.created_at, updated_at=vm.updated_at, username=username,
@@ -228,10 +234,129 @@ async def admin_transfer_vm(
 
     return AdminVMResponse(
         id=vm.id, user_id=vm.user_id, vmid=vm.vmid, name=vm.name,
-        cores=vm.cores, memory_mb=vm.memory_mb, disk_gb=vm.disk_gb,
+        cores=vm.cores, memory_gb=vm.memory_gb, disk_gb=vm.disk_gb,
         os_type=vm.os_type, status=vm.status, ip_address=vm.ip_address,
-        ssh_domain=vm.ssh_domain, web_domain=vm.web_domain,
+        tailscale_ip=vm.tailscale_ip, web_domain=vm.web_domain,
         ssh_username=vm.ssh_username, ssh_password=vm.ssh_password,
         proxmox_node=vm.proxmox_node, storage=vm.storage,
         created_at=vm.created_at, updated_at=vm.updated_at, username=new_owner.username,
     )
+
+
+@router.post("/vms/{vm_id}/install-tailscale", response_model=TailscaleInstallResponse)
+async def admin_install_tailscale(
+    vm_id: int,
+    request: TailscaleInstallRequest,
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Install and authenticate Tailscale on a VM (admin only)."""
+    result = await session.execute(
+        select(VirtualMachine).where(VirtualMachine.id == vm_id)
+    )
+    vm = result.scalar_one_or_none()
+    if not vm:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy VM")
+
+    if vm.status != "running":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="VM phải đang chạy để cài đặt Tailscale"
+        )
+
+    try:
+        proxmox = await create_proxmox_service_for_vm(vm, session)
+
+        # Check if guest agent is running
+        agent_running = await proxmox.is_guest_agent_running(vm.vmid)
+        if not agent_running:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="QEMU Guest Agent chưa sẵn sàng. Vui lòng đợi VM khởi động xong."
+            )
+
+        # Install and authenticate Tailscale
+        install_result = await TailscaleInstallationService.install_and_authenticate(
+            vm.vmid, proxmox, request.auth_key
+        )
+
+        if install_result.get("success"):
+            # Update VM record with Tailscale IP
+            if install_result.get("tailscale_ip"):
+                vm.tailscale_ip = install_result["tailscale_ip"]
+                await session.commit()
+                await session.refresh(vm)
+
+            await log_audit(
+                session, _admin.id, "install_tailscale", "vm", vm.id,
+                f"Installed Tailscale on VM: {vm.name} (VMID: {vm.vmid}), IP: {install_result.get('tailscale_ip')}"
+            )
+
+            return TailscaleInstallResponse(
+                success=True,
+                tailscale_ip=install_result.get("tailscale_ip"),
+                message=install_result.get("message"),
+            )
+        else:
+            return TailscaleInstallResponse(
+                success=False,
+                error=install_result.get("error"),
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi cài đặt Tailscale: {str(e)}"
+        )
+
+
+@router.post("/vms/batch-install-tailscale")
+async def admin_batch_install_tailscale(
+    request: TailscaleInstallRequest,
+    _admin: User = Depends(get_current_admin_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Batch install Tailscale on all running VMs without tailscale_ip (admin only)."""
+    # Get all running VMs without tailscale_ip
+    result = await session.execute(
+        select(VirtualMachine).where(
+            VirtualMachine.status == "running",
+            (VirtualMachine.tailscale_ip == None) | (VirtualMachine.tailscale_ip == "")
+        )
+    )
+    vms = result.scalars().all()
+
+    if not vms:
+        return {"success": True, "message": "Không có VM nào cần cài đặt Tailscale", "results": []}
+
+    results = []
+    for vm in vms:
+        try:
+            proxmox = await create_proxmox_service_for_vm(vm, session)
+            agent_running = await proxmox.is_guest_agent_running(vm.vmid)
+            if not agent_running:
+                results.append({"vm_id": vm.id, "name": vm.name, "success": False, "error": "Guest agent not ready"})
+                continue
+
+            ts_result = await TailscaleInstallationService.install_and_authenticate(
+                vm.vmid, proxmox, request.auth_key
+            )
+
+            if ts_result.get("success") and ts_result.get("tailscale_ip"):
+                vm.tailscale_ip = ts_result["tailscale_ip"]
+                await session.commit()
+                results.append({"vm_id": vm.id, "name": vm.name, "success": True, "tailscale_ip": vm.tailscale_ip})
+            else:
+                results.append({"vm_id": vm.id, "name": vm.name, "success": False, "error": ts_result.get("error")})
+        except Exception as e:
+            results.append({"vm_id": vm.id, "name": vm.name, "success": False, "error": str(e)})
+
+    success_count = sum(1 for r in results if r.get("success"))
+    await log_audit(
+        session, _admin.id, "batch_install_tailscale", "system", None,
+        f"Batch installed Tailscale: {success_count}/{len(results)} VMs"
+    )
+
+    return {"success": True, "total": len(results), "success_count": success_count, "results": results}

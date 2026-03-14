@@ -45,6 +45,8 @@ interface AllSettings {
   refresh_token_expiry_days: string;
   temp_password_expiry_minutes: string;
   auto_assign_ip_subdomain: string;
+  tailscale_auto_install_enabled: string;
+  tailscale_auth_key: string;
 }
 
 interface OsTemplate {
@@ -61,7 +63,7 @@ interface ProxmoxTemplate {
   name: string;
   status: string;
   cores: number;
-  memory_mb: number;
+  memory_gb: number;
   disk_gb: number;
   type: 'template';
 }
@@ -77,6 +79,8 @@ export default function AdminSettingsPage() {
   const [featureNoVNC, setFeatureNoVNC] = useState(false);
   const [feature2FA, setFeature2FA] = useState(false);
   const [autoAssignIpSubdomain, setAutoAssignIpSubdomain] = useState(false);
+  const [tailscaleAutoInstall, setTailscaleAutoInstall] = useState(false);
+  const [tailscaleAuthKey, setTailscaleAuthKey] = useState('');
   const [refreshExpiry, setRefreshExpiry] = useState('7');
   const [tempPasswordExpiry, setTempPasswordExpiry] = useState('60');
   const [loading, setLoading] = useState(false);
@@ -122,6 +126,8 @@ export default function AdminSettingsPage() {
       setFeatureNoVNC(data.feature_novnc_console === 'true');
       setFeature2FA(data.feature_2fa_required === 'true');
       setAutoAssignIpSubdomain(data.auto_assign_ip_subdomain === 'true');
+      setTailscaleAutoInstall(data.tailscale_auto_install_enabled === 'true');
+      setTailscaleAuthKey(data.tailscale_auth_key || '');
       setRefreshExpiry(data.refresh_token_expiry_days || '7');
       setTempPasswordExpiry(data.temp_password_expiry_minutes || '60');
     } catch {
@@ -139,6 +145,8 @@ export default function AdminSettingsPage() {
         feature_novnc_console: featureNoVNC ? 'true' : 'false',
         feature_2fa_required: feature2FA ? 'true' : 'false',
         auto_assign_ip_subdomain: autoAssignIpSubdomain ? 'true' : 'false',
+        tailscale_auto_install_enabled: tailscaleAutoInstall ? 'true' : 'false',
+        tailscale_auth_key: tailscaleAuthKey,
         refresh_token_expiry_days: refreshExpiry,
         temp_password_expiry_minutes: tempPasswordExpiry,
       };
@@ -271,7 +279,7 @@ export default function AdminSettingsPage() {
         const response = await apiClient.post('/admin/os-templates', {
           label: template.name,
           os_type_key: `template-${vmid}`,
-          description: `VM Template - VMID: ${vmid}, Cores: ${template.cores}, RAM: ${template.memory_mb}MB`,
+          description: `VM Template - VMID: ${vmid}, Cores: ${template.cores}, RAM: ${template.memory_gb}GB`,
           is_enabled: true,
         });
         setOsTemplates((prev) => [...prev, response.data]);
@@ -367,6 +375,30 @@ export default function AdminSettingsPage() {
             <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: -1 }}>
               Khi bật, mỗi VM mới sẽ tự động được tạo SSH/Web subdomain từ tên VM (qua Cloudflare Tunnel)
             </Typography>
+
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="subtitle1" gutterBottom>Tailscale</Typography>
+
+            <FormControlLabel
+              control={
+                <Switch checked={tailscaleAutoInstall} onChange={(e) => setTailscaleAutoInstall(e.target.checked)} />
+              }
+              label="Tự động cài đặt Tailscale cho VM mới"
+            />
+            <Typography variant="body2" color="text.secondary" sx={{ ml: 4, mt: -1, mb: 2 }}>
+              Khi bật, Tailscale sẽ được cài đặt và kết nối tự động khi VM khởi động xong
+            </Typography>
+
+            <TextField
+              fullWidth
+              label="Tailscale Auth Key"
+              value={tailscaleAuthKey}
+              onChange={(e) => setTailscaleAuthKey(e.target.value)}
+              placeholder="tskey-auth-xxxxx"
+              helperText="Lấy từ Tailscale Admin Console → Settings → Keys → Generate auth key (reusable)"
+              type="password"
+              disabled={!tailscaleAutoInstall}
+            />
           </Stack>
         </CardContent>
       </Card>
@@ -593,7 +625,7 @@ export default function AdminSettingsPage() {
                       <TableCell>{t.vmid}</TableCell>
                       <TableCell>{t.name}</TableCell>
                       <TableCell>{t.cores}</TableCell>
-                      <TableCell>{t.memory_mb} MB</TableCell>
+                      <TableCell>{t.memory_gb} GB</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

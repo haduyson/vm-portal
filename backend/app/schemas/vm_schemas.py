@@ -22,7 +22,7 @@ class VMCreate(BaseModel):
             raise ValueError("Tên VM không được quá 63 ký tự")
         return v
     cores: int = Field(..., ge=1, le=16)
-    memory_mb: int = Field(..., ge=512, le=32768)
+    memory_gb: int = Field(..., ge=1, le=32, description="RAM in GB")
     disk_gb: int = Field(..., ge=10, le=500)
     os_type: str = "ubuntu-24.04"
     server_id: Optional[int] = None
@@ -53,12 +53,12 @@ class VMResponse(BaseModel):
     vmid: int
     name: str
     cores: int
-    memory_mb: int
+    memory_gb: int
     disk_gb: int
     os_type: str
     status: str
     ip_address: Optional[str]
-    ssh_domain: Optional[str]
+    tailscale_ip: Optional[str]
     web_domain: Optional[str]
     ssh_username: Optional[str]
     ssh_password: Optional[str]
@@ -79,15 +79,15 @@ class VMListResponse(BaseModel):
 
 class VMResourceResponse(BaseModel):
     cpu_percent: float
-    memory_used_mb: float
-    memory_total_mb: float
+    memory_used_gb: float
+    memory_total_gb: float
     disk_used_gb: float
     disk_total_gb: float
 
 
 class VMResize(BaseModel):
     cores: Optional[int] = Field(None, ge=1, le=16)
-    memory_mb: Optional[int] = Field(None, ge=512, le=65536)
+    memory_gb: Optional[int] = Field(None, ge=1, le=64, description="RAM in GB")
     disk_gb: Optional[int] = Field(None, ge=10, le=1000)
 
 
@@ -120,3 +120,14 @@ class VMConsoleResponse(BaseModel):
 
 class VMResetPassword(BaseModel):
     new_password: str = Field(..., min_length=6, max_length=128)
+
+
+class TailscaleInstallRequest(BaseModel):
+    auth_key: str = Field(..., min_length=10, description="Tailscale auth key (tskey-auth-xxx)")
+
+
+class TailscaleInstallResponse(BaseModel):
+    success: bool
+    tailscale_ip: Optional[str] = None
+    error: Optional[str] = None
+    message: Optional[str] = None
