@@ -18,12 +18,12 @@ class VirtualMachine(Base):
     vmid = Column(Integer, unique=True, nullable=False, index=True)
     name = Column(String, nullable=False)
     cores = Column(Integer, nullable=False)
-    memory_mb = Column(Integer, nullable=False)
+    memory_gb = Column(Integer, nullable=False)
     disk_gb = Column(Integer, nullable=False)
     os_type = Column(String, default="ubuntu-24.04", nullable=False)
     status = Column(String, default="creating", nullable=False)
     ip_address = Column(String, nullable=True)
-    ssh_domain = Column(String, nullable=True)
+    tailscale_ip = Column(String(45), nullable=True)  # Tailscale IP for external access
     web_domain = Column(String, nullable=True)  # HTTP subdomain for web access
     ssh_username = Column(String, nullable=True)
     ssh_password = Column(String, nullable=True)

@@ -53,25 +53,27 @@ class EmailTemplates:
         ip: str,
         username: str,
         password: str,
-        ssh_domain: str,
+        tailscale_ip: Optional[str],
         web_domain: Optional[str],
         portal_url: str,
     ) -> Tuple[str, str]:
         """Return (text, html) for VM ready notification.
         SEC-023: All user-controlled values are HTML-escaped.
         """
+        tailscale_line_text = f"\nTailscale IP: {tailscale_ip}" if tailscale_ip else ""
+        tailscale_line_html = f'<div class="info-row"><div class="info-label">Tailscale IP</div><div class="info-value">{_esc(tailscale_ip)}</div></div>' if tailscale_ip else ""
         web_line_text = f"\nWeb Domain: {web_domain}" if web_domain else ""
         web_line_html = f'<div class="info-row"><div class="info-label">Web Domain</div><div class="info-value">{_esc(web_domain)}</div></div>' if web_domain else ""
+        ssh_target = tailscale_ip or ip
 
         text = f"""VM Đã Sẵn Sàng!
 
 Tên VM: {vm_name}
-IP Nội Bộ: {ip}
-SSH Domain: {ssh_domain}{web_line_text}
+IP Nội Bộ: {ip}{tailscale_line_text}{web_line_text}
 Username: {username}
 Password: {password}
 
-Kết nối: ssh {username}@{ssh_domain}
+Kết nối: ssh {username}@{ssh_target}
 Quản lý VM: {portal_url}
 """
 
@@ -80,11 +82,11 @@ Quản lý VM: {portal_url}
             <p>Máy ảo của bạn đã sẵn sàng sử dụng!</p>
             <div class="info-row"><div class="info-label">Tên VM</div><div class="info-value">{_esc(vm_name)}</div></div>
             <div class="info-row"><div class="info-label">IP Nội Bộ</div><div class="info-value">{_esc(ip)}</div></div>
-            <div class="info-row"><div class="info-label">SSH Domain</div><div class="info-value">{_esc(ssh_domain)}</div></div>
+            {tailscale_line_html}
             {web_line_html}
             <div class="info-row"><div class="info-label">Username</div><div class="info-value">{_esc(username)}</div></div>
             <div class="info-row password"><div class="info-label">Password</div><div class="info-value">{_esc(password)}</div></div>
-            <div class="info-row"><div class="info-label">Kết nối SSH</div><div class="info-value">ssh {_esc(username)}@{_esc(ssh_domain)}</div></div>
+            <div class="info-row"><div class="info-label">Kết nối SSH</div><div class="info-value">ssh {_esc(username)}@{_esc(ssh_target)}</div></div>
         """
 
         html_content = EmailTemplates._base_html("VM Đã Sẵn Sàng", content, portal_url)

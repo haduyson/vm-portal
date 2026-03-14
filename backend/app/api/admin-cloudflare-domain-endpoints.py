@@ -163,11 +163,11 @@ async def delete_cloudflare_domain(
             detail="Không tìm thấy domain",
         )
 
-    # Check if any VMs are using this domain
+    # Check if any VMs are using this domain (via web_domain)
     from app.models.virtual_machine_model import VirtualMachine
     vms_result = await session.execute(
         select(VirtualMachine).where(
-            VirtualMachine.ssh_domain.like(f"%.{domain.domain}")
+            VirtualMachine.web_domain.like(f"%.{domain.domain}")
         )
     )
     vms_using_domain = vms_result.scalars().all()

@@ -46,12 +46,12 @@ interface Props {
   vmStatus: string;
   proxmoxNode: string;
   onOpenSSHConsole?: () => void;
-  sshDomain?: string | null;
+  tailscaleIp?: string | null;
   sshUsername?: string | null;
   sshPassword?: string | null;
 }
 
-export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSHConsole, sshDomain, sshUsername, sshPassword }: Props) {
+export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSHConsole, tailscaleIp, sshUsername, sshPassword }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -184,10 +184,10 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSH
     );
   }
 
-  // Code snippets for SSH guide
-  const sshCommand = sshDomain ? `ssh -o ProxyCommand="cloudflared access ssh --hostname %h" ${sshUsername || 'root'}@${sshDomain}` : '';
-  const sshConfigSnippet = sshDomain ? `Host ${sshDomain}
-    ProxyCommand cloudflared access ssh --hostname %h
+  // Code snippets for SSH guide - using Tailscale IP for direct access
+  const sshCommand = tailscaleIp ? `ssh ${sshUsername || 'root'}@${tailscaleIp}` : '';
+  const sshConfigSnippet = tailscaleIp ? `Host vm-tailscale
+    HostName ${tailscaleIp}
     User ${sshUsername || 'root'}` : '';
 
   return (
@@ -223,17 +223,17 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSH
       </Paper>
 
       {/* SSH Terminal Guide */}
-      {sshDomain && (
+      {tailscaleIp && (
         <Accordion sx={{ mt: 2 }} defaultExpanded={false}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <TerminalIcon color="primary" />
-              <Typography variant="h6">Hướng dẫn SSH từ Terminal (bên ngoài mạng LAN)</Typography>
+              <Typography variant="h6">Hướng dẫn SSH qua Tailscale</Typography>
             </Box>
           </AccordionSummary>
           <AccordionDetails>
             <Alert severity="info" sx={{ mb: 3 }}>
-              Sử dụng <strong>Cloudflare Tunnel</strong> để kết nối SSH an toàn từ bất kỳ đâu mà không cần mở port.
+              Sử dụng <strong>Tailscale</strong> để kết nối SSH an toàn từ bất kỳ đâu. Đảm bảo thiết bị của bạn đã cài đặt Tailscale.
             </Alert>
 
             {/* SSH Info */}
@@ -241,11 +241,11 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSH
               <Typography variant="subtitle2" gutterBottom>Thông tin kết nối:</Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ minWidth: 100 }}>SSH Domain:</Typography>
-                  <Chip label={sshDomain} size="small" />
-                  <Tooltip title={copiedText === 'domain' ? 'Đã sao chép!' : 'Sao chép'}>
-                    <IconButton size="small" onClick={() => handleCopy(sshDomain, 'domain')}>
-                      {copiedText === 'domain' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" />}
+                  <Typography variant="body2" color="text.secondary" sx={{ minWidth: 100 }}>Tailscale IP:</Typography>
+                  <Chip label={tailscaleIp} size="small" />
+                  <Tooltip title={copiedText === 'ip' ? 'Đã sao chép!' : 'Sao chép'}>
+                    <IconButton size="small" onClick={() => handleCopy(tailscaleIp, 'ip')}>
+                      {copiedText === 'ip' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" />}
                     </IconButton>
                   </Tooltip>
                 </Box>
@@ -391,9 +391,9 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSH
                   <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.900', mb: 2 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <Typography component="code" sx={{ color: 'success.light', fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                        ssh {sshDomain}
+                        ssh {sshUsername || 'root'}@{tailscaleIp}
                       </Typography>
-                      <IconButton size="small" onClick={() => handleCopy(`ssh ${sshDomain}`, 'simple')}>
+                      <IconButton size="small" onClick={() => handleCopy(`ssh ${sshUsername || 'root'}@${tailscaleIp}`, 'simple')}>
                         {copiedText === 'simple' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" sx={{ color: 'grey.500' }} />}
                       </IconButton>
                     </Box>
@@ -413,8 +413,8 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSH
         </Accordion>
       )}
 
-      {/* Termius Guide */}
-      {sshDomain && (
+      {/* Tailscale Apps Guide */}
+      {tailscaleIp && (
         <Accordion sx={{ mt: 2 }} defaultExpanded={false}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -425,67 +425,37 @@ export default function VMConsoleViewer({ vmId, vmStatus, proxmoxNode, onOpenSSH
           </AccordionSummary>
           <AccordionDetails>
             <Alert severity="info" sx={{ mb: 3 }}>
-              Termius và PuTTY không hỗ trợ ProxyCommand trực tiếp. Bạn cần chạy <strong>cloudflared proxy</strong> trên máy local trước.
+              Với Tailscale, bạn có thể kết nối trực tiếp từ bất kỳ ứng dụng SSH nào.
             </Alert>
 
             <Stepper activeStep={-1} orientation="vertical">
-              {/* Step 1: Install cloudflared */}
+              {/* Step 1: Install Tailscale */}
               <Step active>
                 <StepLabel>
-                  <Typography variant="subtitle1">Cài đặt Cloudflared CLI</Typography>
+                  <Typography variant="subtitle1">Cài đặt Tailscale trên thiết bị của bạn</Typography>
                 </StepLabel>
                 <StepContent>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Tương tự hướng dẫn Terminal ở trên. Cài <code>cloudflared</code> trên máy tính (1 lần duy nhất).
+                    Tải và cài đặt Tailscale từ <a href="https://tailscale.com/download" target="_blank" rel="noreferrer">tailscale.com/download</a>
                   </Typography>
-                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.900', mb: 2 }}>
-                    <Typography variant="caption" color="grey.500" display="block" gutterBottom>macOS:</Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Typography component="code" sx={{ color: 'success.light', fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                        brew install cloudflared
-                      </Typography>
-                      <IconButton size="small" onClick={() => handleCopy('brew install cloudflared', 'termius-brew')}>
-                        {copiedText === 'termius-brew' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" sx={{ color: 'grey.500' }} />}
-                      </IconButton>
-                    </Box>
-                  </Paper>
-                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.900' }}>
-                    <Typography variant="caption" color="grey.500" display="block" gutterBottom>Windows:</Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Typography component="code" sx={{ color: 'success.light', fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                        winget install cloudflare.cloudflared
-                      </Typography>
-                      <IconButton size="small" onClick={() => handleCopy('winget install cloudflare.cloudflared', 'termius-winget')}>
-                        {copiedText === 'termius-winget' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" sx={{ color: 'grey.500' }} />}
-                      </IconButton>
-                    </Box>
-                  </Paper>
                 </StepContent>
               </Step>
 
-              {/* Step 2: Run proxy */}
+              {/* Step 2: Connect */}
               <Step active>
                 <StepLabel>
-                  <Typography variant="subtitle1">Chạy Cloudflared Proxy (giữ Terminal mở)</Typography>
+                  <Typography variant="subtitle1">Kết nối SSH trực tiếp</Typography>
                 </StepLabel>
                 <StepContent>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Mở Terminal/PowerShell và chạy lệnh sau. <strong>Giữ cửa sổ này mở</strong> trong khi dùng Termius.
+                    Sau khi đăng nhập Tailscale, kết nối trực tiếp tới VM:
                   </Typography>
-                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.900', mb: 2 }}>
-                    <Typography variant="caption" color="grey.500" display="block" gutterBottom>Lệnh chạy proxy:</Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-                      <Typography component="code" sx={{ color: 'warning.light', fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>
-                        cloudflared access tcp --hostname {sshDomain} --url localhost:2222
-                      </Typography>
-                      <IconButton size="small" onClick={() => handleCopy(`cloudflared access tcp --hostname ${sshDomain} --url localhost:2222`, 'proxy')}>
-                        {copiedText === 'proxy' ? <CheckIcon fontSize="small" color="success" /> : <CopyIcon fontSize="small" sx={{ color: 'grey.500' }} />}
-                      </IconButton>
-                    </Box>
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'action.hover', mb: 2 }}>
+                    <Typography variant="body2"><strong>Host:</strong> {tailscaleIp}</Typography>
+                    <Typography variant="body2"><strong>Port:</strong> 22</Typography>
+                    <Typography variant="body2"><strong>Username:</strong> {sshUsername || 'root'}</Typography>
+                    <Typography variant="body2"><strong>Password:</strong> (xem ở tab Thông tin)</Typography>
                   </Paper>
-                  <Alert severity="warning" sx={{ mb: 2 }}>
-                    Proxy sẽ chạy ở <code>localhost:2222</code>. Bạn có thể đổi port khác nếu cần.
-                  </Alert>
                 </StepContent>
               </Step>
 

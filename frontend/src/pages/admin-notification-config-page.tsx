@@ -17,8 +17,8 @@ const DEFAULT_TEMPLATES = {
     vm_ready: `🎉 *VM Đã Sẵn Sàng!*
 
 📦 *Tên VM:* {{vm_name}}
-🌐 *IP:* \`{{ip_address}}\`
-🔗 *SSH Domain:* \`{{ssh_domain}}\`
+🌐 *IP Nội Bộ:* \`{{ip_address}}\`
+🔗 *Tailscale IP:* \`{{tailscale_ip}}\`
 🌍 *Web Domain:* {{web_domain}}
 
 👤 *Username:* \`{{username}}\`
@@ -44,8 +44,8 @@ Vui lòng liên hệ quản trị viên.`,
       subject: 'VM {{vm_name}} Đã Sẵn Sàng',
       body: `<h2>VM Của Bạn Đã Sẵn Sàng!</h2>
 <p><strong>Tên VM:</strong> {{vm_name}}</p>
-<p><strong>IP Address:</strong> {{ip_address}}</p>
-<p><strong>SSH Domain:</strong> {{ssh_domain}}</p>
+<p><strong>IP Nội Bộ:</strong> {{ip_address}}</p>
+<p><strong>Tailscale IP:</strong> {{tailscale_ip}}</p>
 <p><strong>Web Domain:</strong> {{web_domain}}</p>
 <hr/>
 <p><strong>Thông tin đăng nhập:</strong></p>
@@ -76,7 +76,7 @@ Vui lòng liên hệ quản trị viên.`,
 const SAMPLE_DATA = {
   vm_name: 'my-test-vm',
   ip_address: '192.168.1.100',
-  ssh_domain: 'my-test-vm.ssh.example.com',
+  tailscale_ip: '100.64.0.10',
   web_domain: 'my-test-vm.example.com',
   username: 'root',
   password: 'SecurePass123',
@@ -353,7 +353,7 @@ export default function AdminNotificationConfigPage() {
                 <CardContent>
                   <Typography variant="h6" gutterBottom>Mẫu Thông Báo Telegram</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Biến: {'{{vm_name}}, {{ip_address}}, {{ssh_domain}}, {{web_domain}}, {{username}}, {{password}}, {{error}}, {{expiry_minutes}}, {{portal_url}}'}
+                    Biến: {'{{vm_name}}, {{ip_address}}, {{tailscale_ip}}, {{web_domain}}, {{username}}, {{password}}, {{error}}, {{expiry_minutes}}, {{portal_url}}'}
                   </Typography>
                   <Divider sx={{ mb: 2 }} />
                   <Stack spacing={3}>
@@ -472,7 +472,7 @@ export default function AdminNotificationConfigPage() {
                 <CardContent>
                   <Typography variant="h6" gutterBottom>Mẫu Thông Báo Email</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Biến: {'{{vm_name}}, {{ip_address}}, {{ssh_domain}}, {{web_domain}}, {{username}}, {{password}}, {{error}}, {{expiry_minutes}}, {{portal_url}}'}
+                    Biến: {'{{vm_name}}, {{ip_address}}, {{tailscale_ip}}, {{web_domain}}, {{username}}, {{password}}, {{error}}, {{expiry_minutes}}, {{portal_url}}'}
                   </Typography>
                   <Divider sx={{ mb: 2 }} />
                   <Stack spacing={3}>

@@ -287,7 +287,7 @@ export default function VMCreatePage() {
       const payload: Record<string, unknown> = {
         name: formData.name,
         cores: formData.cores,
-        memory_mb: formData.ram_gb * 1024,
+        memory_gb: formData.ram_gb,
         disk_gb: formData.disk_gb,
         os_type: formData.os_type,
       };

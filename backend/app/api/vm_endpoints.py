@@ -60,7 +60,7 @@ async def create_vm(
 
         current_vm_count = len(user_vms)
         current_disk_gb = sum(vm.disk_gb for vm in user_vms)
-        current_ram_mb = sum(vm.memory_mb for vm in user_vms)
+        current_ram_gb = sum(vm.memory_gb for vm in user_vms)
         current_cpu_cores = sum(vm.cores for vm in user_vms)
 
         if current_user.max_vms is not None:
@@ -78,11 +78,10 @@ async def create_vm(
                 )
 
         if current_user.max_ram_gb is not None:
-            max_ram_mb = current_user.max_ram_gb * 1024  # Convert GB to MB for comparison
-            if current_ram_mb + vm_data.memory_mb > max_ram_mb:
+            if current_ram_gb + vm_data.memory_gb > current_user.max_ram_gb:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Đã vượt giới hạn RAM ({(current_ram_mb + vm_data.memory_mb) // 1024}/{current_user.max_ram_gb} GB)",
+                    detail=f"Đã vượt giới hạn RAM ({current_ram_gb + vm_data.memory_gb}/{current_user.max_ram_gb} GB)",
                 )
 
         if current_user.max_cpu_cores is not None:
@@ -163,21 +162,10 @@ async def create_vm(
                         detail="Không có domain nào khả dụng. Vui lòng liên hệ quản trị viên.",
                     )
 
-            # SSH subdomain: {vm-name}.ssh.{domain} (e.g., myvm.ssh.hasonmedia.com)
-            # HTTP subdomain: {vm-name}.{domain} (e.g., myvm.hasonmedia.com)
-            ssh_full_domain = f"{vm_base_subdomain}.ssh.{cf_domain.domain}"
+            # Web subdomain: {vm-name}.{domain} (e.g., myvm.hasonmedia.com)
             web_full_domain = f"{vm_base_subdomain}.{cf_domain.domain}"
 
-            # Check DB uniqueness for both domains
-            existing_ssh = await session.execute(
-                select(VirtualMachine).where(VirtualMachine.ssh_domain == ssh_full_domain)
-            )
-            if existing_ssh.scalar_one_or_none():
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"SSH subdomain '{ssh_full_domain}' đã được sử dụng",
-                )
-
+            # Check DB uniqueness for web domain
             existing_web = await session.execute(
                 select(VirtualMachine).where(VirtualMachine.web_domain == web_full_domain)
             )
@@ -187,7 +175,7 @@ async def create_vm(
                     detail=f"Web subdomain '{web_full_domain}' đã được sử dụng",
                 )
 
-            # Check Cloudflare DNS availability for both subdomains
+            # Check Cloudflare DNS availability for web subdomain
             try:
                 cf_service = CloudflareTunnelService(
                     api_token=cf_domain.cf_api_token,
@@ -197,14 +185,6 @@ async def create_vm(
                     base_domain=cf_domain.domain,
                     config_path=cf_domain.cloudflared_config_path,
                 )
-                # Check SSH subdomain
-                ssh_available = await cf_service.is_subdomain_available(f"{vm_base_subdomain}.ssh")
-                if not ssh_available:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"SSH subdomain '{ssh_full_domain}' đã tồn tại trên Cloudflare",
-                    )
-                # Check HTTP subdomain
                 web_available = await cf_service.is_subdomain_available(vm_base_subdomain)
                 if not web_available:
                     raise HTTPException(
@@ -377,14 +357,13 @@ async def create_vm(
             vmid=vmid,
             name=vm_data.name,
             cores=vm_data.cores,
-            memory_mb=vm_data.memory_mb,
+            memory_gb=vm_data.memory_gb,
             disk_gb=vm_data.disk_gb,
             os_type=vm_data.os_type,
             status="creating",
             proxmox_node=node_name,
             storage=storage_name,
             vlan_tags=vm_data.vlan_tags,
-            ssh_domain=ssh_full_domain if vm_base_subdomain else None,
             web_domain=web_full_domain if vm_base_subdomain else None,
         )
 
@@ -700,8 +679,8 @@ async def delete_vm(
         except Exception:
             pass  # Non-critical cleanup
 
-        # Cleanup Cloudflare tunnel for SSH and HTTP subdomains
-        if vm.ssh_domain or vm.web_domain:
+        # Cleanup Cloudflare tunnel for HTTP subdomain
+        if vm.web_domain:
             try:
                 # Find matching CloudflareDomain
                 _cf_domain_model = importlib.import_module("app.models.cloudflare-domain-model")
@@ -721,12 +700,6 @@ async def delete_vm(
                         base_domain=d.domain,
                         config_path=d.cloudflared_config_path,
                     )
-
-                    # Cleanup SSH subdomain
-                    if vm.ssh_domain and vm.ssh_domain.endswith(f".{d.domain}"):
-                        ssh_subdomain = vm.ssh_domain.replace(f".{d.domain}", "")
-                        await cf_service.remove_ssh_ingress(ssh_subdomain)
-                        print(f"Cleaned up SSH tunnel for {vm.ssh_domain}")
 
                     # Cleanup HTTP subdomain
                     if vm.web_domain and vm.web_domain.endswith(f".{d.domain}"):
@@ -784,7 +757,7 @@ async def resize_vm(
             detail="VM phải ở trạng thái đã dừng để thay đổi cấu hình",
         )
 
-    if not resize_data.cores and not resize_data.memory_mb and not resize_data.disk_gb:
+    if not resize_data.cores and not resize_data.memory_gb and not resize_data.disk_gb:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Phải chỉ định ít nhất một thông số để thay đổi",
@@ -804,16 +777,16 @@ async def resize_vm(
     user_vms = user_vms_result.scalars().all()
 
     current_disk_gb = sum(v.disk_gb for v in user_vms)
-    current_ram_mb = sum(v.memory_mb for v in user_vms)
+    current_ram_gb = sum(v.memory_gb for v in user_vms)
     current_cpu_cores = sum(v.cores for v in user_vms)
 
     new_cores = resize_data.cores or vm.cores
-    new_memory_mb = resize_data.memory_mb or vm.memory_mb
+    new_memory_gb = resize_data.memory_gb or vm.memory_gb
     new_disk_gb = resize_data.disk_gb or vm.disk_gb
 
     # Delta = new - old for this VM
     delta_cores = new_cores - vm.cores
-    delta_ram = new_memory_mb - vm.memory_mb
+    delta_ram_gb = new_memory_gb - vm.memory_gb
     delta_disk = new_disk_gb - vm.disk_gb
 
     if current_user.max_cpu_cores is not None and current_cpu_cores + delta_cores > current_user.max_cpu_cores:
@@ -822,11 +795,10 @@ async def resize_vm(
             detail=f"Vượt giới hạn CPU cores ({current_cpu_cores + delta_cores}/{current_user.max_cpu_cores})",
         )
     if current_user.max_ram_gb is not None:
-        max_ram_mb = current_user.max_ram_gb * 1024  # Convert GB to MB for comparison
-        if current_ram_mb + delta_ram > max_ram_mb:
+        if current_ram_gb + delta_ram_gb > current_user.max_ram_gb:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Vượt giới hạn RAM ({(current_ram_mb + delta_ram) // 1024}/{current_user.max_ram_gb} GB)",
+                detail=f"Vượt giới hạn RAM ({current_ram_gb + delta_ram_gb}/{current_user.max_ram_gb} GB)",
             )
     if current_user.max_disk_gb is not None and current_disk_gb + delta_disk > current_user.max_disk_gb:
         raise HTTPException(
@@ -838,12 +810,12 @@ async def resize_vm(
         proxmox = await create_proxmox_service_for_vm(vm, session)
 
         # Apply CPU/RAM changes
-        if resize_data.cores or resize_data.memory_mb:
+        if resize_data.cores or resize_data.memory_gb:
             config_kwargs = {}
             if resize_data.cores:
                 config_kwargs["cores"] = new_cores
-            if resize_data.memory_mb:
-                config_kwargs["memory"] = new_memory_mb
+            if resize_data.memory_gb:
+                config_kwargs["memory"] = new_memory_gb * 1024  # Proxmox expects MB
             await proxmox.set_vm_config(vm.vmid, **config_kwargs)
 
         # Resize disk if requested
@@ -852,7 +824,7 @@ async def resize_vm(
 
         # Update DB record
         vm.cores = new_cores
-        vm.memory_mb = new_memory_mb
+        vm.memory_gb = new_memory_gb
         vm.disk_gb = new_disk_gb
         await session.commit()
         await session.refresh(vm)
@@ -893,7 +865,7 @@ async def clone_vm(
     user_vms = user_vms_result.scalars().all()
     current_vm_count = len(user_vms)
     current_disk_gb = sum(v.disk_gb for v in user_vms)
-    current_ram_mb = sum(v.memory_mb for v in user_vms)
+    current_ram_gb = sum(v.memory_gb for v in user_vms)
     current_cpu_cores = sum(v.cores for v in user_vms)
 
     if current_user.max_vms is not None and current_vm_count >= current_user.max_vms:
@@ -901,8 +873,7 @@ async def clone_vm(
     if current_user.max_disk_gb is not None and current_disk_gb + vm.disk_gb > current_user.max_disk_gb:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đã vượt giới hạn dung lượng ổ cứng")
     if current_user.max_ram_gb is not None:
-        max_ram_mb = current_user.max_ram_gb * 1024  # Convert GB to MB for comparison
-        if current_ram_mb + vm.memory_mb > max_ram_mb:
+        if current_ram_gb + vm.memory_gb > current_user.max_ram_gb:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đã vượt giới hạn RAM")
     if current_user.max_cpu_cores is not None and current_cpu_cores + vm.cores > current_user.max_cpu_cores:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Đã vượt giới hạn CPU cores")
@@ -918,7 +889,7 @@ async def clone_vm(
             vmid=new_vmid,
             name=clone_data.name,
             cores=vm.cores,
-            memory_mb=vm.memory_mb,
+            memory_gb=vm.memory_gb,
             disk_gb=vm.disk_gb,
             os_type=vm.os_type,
             status="creating",
@@ -1327,10 +1298,10 @@ async def check_subdomain_availability(
         if not cf_domain:
             return {"available": False, "reason": "Không có domain nào khả dụng"}
 
-    # Check DB
+    # Check DB for web_domain
     full_domain = f"{subdomain}.{cf_domain.domain}"
     existing = await session.execute(
-        select(VirtualMachine).where(VirtualMachine.ssh_domain == full_domain)
+        select(VirtualMachine).where(VirtualMachine.web_domain == full_domain)
     )
     if existing.scalar_one_or_none():
         return {"available": False, "reason": "Subdomain đã được sử dụng"}

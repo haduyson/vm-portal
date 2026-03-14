@@ -60,7 +60,7 @@ class NotificationService:
         ip: str,
         username: str,
         password: str,
-        ssh_domain: str,
+        tailscale_ip: Optional[str] = None,
         web_domain: Optional[str] = None,
     ) -> Dict[str, bool]:
         """Send VM ready notification based on user preference."""
@@ -75,7 +75,7 @@ class NotificationService:
             chat_id = getattr(user, "telegram_chat_id", None)
             if chat_id:
                 results["telegram"] = await self.telegram.send_vm_ready(
-                    chat_id, vm_name, ip, username, password, ssh_domain, web_domain
+                    chat_id, vm_name, ip, username, password, tailscale_ip, web_domain
                 )
 
         # Send via Email (if feature enabled)
@@ -83,7 +83,7 @@ class NotificationService:
             user_email = getattr(user, "email", None)
             if user_email and self.email.is_configured():
                 text, html = EmailTemplates.vm_ready(
-                    vm_name, ip, username, password, ssh_domain, web_domain, self.portal_url
+                    vm_name, ip, username, password, tailscale_ip, web_domain, self.portal_url
                 )
                 results["email"] = await self.email.send(user_email, "VM Đã Sẵn Sàng", text, html)
 

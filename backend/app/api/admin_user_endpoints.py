@@ -276,8 +276,7 @@ async def get_user_resource_usage(
 
     vms_used = len(vms)
     disk_used_gb = sum(vm.disk_gb for vm in vms)
-    ram_used_mb = sum(vm.memory_mb for vm in vms)
-    ram_used_gb = ram_used_mb / 1024.0  # Convert to GB for response
+    ram_used_gb = sum(vm.memory_gb for vm in vms)  # Already in GB
     cpu_used_cores = sum(vm.cores for vm in vms)
 
     return UserResourceUsageResponse(

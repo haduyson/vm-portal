@@ -61,7 +61,7 @@ class TelegramNotifier:
         ip: str,
         username: str,
         password: str,
-        ssh_domain: str,
+        tailscale_ip: Optional[str] = None,
         web_domain: Optional[str] = None,
     ) -> bool:
         """Send VM ready notification."""
@@ -71,17 +71,18 @@ class TelegramNotifier:
             print("Warning: No Telegram chat ID configured")
             return False
 
+        tailscale_line = f"\n*Tailscale IP:* `{tailscale_ip}`" if tailscale_ip else ""
         web_domain_line = f"\n*Web Domain:* `{web_domain}`" if web_domain else ""
+        ssh_target = tailscale_ip or ip
 
         message = f"""🖥 *VM Đã Sẵn Sàng!*
 
 *Tên VM:* `{vm_name}`
-*IP Nội Bộ:* `{ip}`
-*SSH Domain:* `{ssh_domain}`{web_domain_line}
+*IP Nội Bộ:* `{ip}`{tailscale_line}{web_domain_line}
 *Username:* `{username}`
 *Password:* `{password}`
 
-Kết nối: `ssh {username}@{ssh_domain}`
+Kết nối: `ssh {username}@{ssh_target}`
 🔗 Quản lý VM: {self.portal_url}"""
 
         return await self.send_message(target_chat_id, message)
