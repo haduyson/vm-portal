@@ -90,9 +90,6 @@ export default function AdminVmOverviewPage() {
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; vmId: number | null; vmName: string }>({ open: false, vmId: null, vmName: '' });
   const [transferDialog, setTransferDialog] = useState<{ open: boolean; vm: AdminVM | null }>({ open: false, vm: null });
-  const [tailscaleDialog, setTailscaleDialog] = useState(false);
-  const [tailscaleAuthKey, setTailscaleAuthKey] = useState('');
-  const [tailscaleLoading, setTailscaleLoading] = useState(false);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | ''>('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
@@ -230,27 +227,6 @@ export default function AdminVmOverviewPage() {
     }
   };
 
-  const handleBatchTailscale = async () => {
-    if (!tailscaleAuthKey) return;
-    setTailscaleLoading(true);
-    try {
-      const response = await apiClient.post('/admin/vms/batch-install-tailscale', { auth_key: tailscaleAuthKey });
-      const { success_count, total, results } = response.data;
-      const failedVMs = results?.filter((r: any) => !r.success).map((r: any) => `${r.name}: ${r.error}`).join(', ');
-      const msg = success_count > 0
-        ? `Đã cài Tailscale: ${success_count}/${total} VMs`
-        : `Không cài được VM nào (${total} VMs). Lỗi: ${failedVMs || 'Guest agent chưa sẵn sàng'}`;
-      setSnackbar({ open: true, message: msg, severity: success_count > 0 ? 'success' : 'error' });
-      setTailscaleDialog(false);
-      setTailscaleAuthKey('');
-      await fetchData();
-    } catch (error: any) {
-      setSnackbar({ open: true, message: error.response?.data?.detail || 'Lỗi batch install', severity: 'error' });
-    } finally {
-      setTailscaleLoading(false);
-    }
-  };
-
   const handleTransferVM = async () => {
     if (!transferDialog.vm || !selectedUserId) return;
     setActionLoading(transferDialog.vm.id);
@@ -283,24 +259,14 @@ export default function AdminVmOverviewPage() {
         <Typography variant="h4">
           Tất Cả Máy Ảo
         </Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="contained"
-            color="secondary"
-            onClick={() => setTailscaleDialog(true)}
-            size="small"
-          >
-            Batch Tailscale
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<DownloadIcon />}
-            onClick={handleExportCSV}
-            size="small"
-          >
-            Xuất CSV
-          </Button>
-        </Box>
+        <Button
+          variant="outlined"
+          startIcon={<DownloadIcon />}
+          onClick={handleExportCSV}
+          size="small"
+        >
+          Xuất CSV
+        </Button>
       </Box>
 
       {error && (
@@ -640,30 +606,6 @@ export default function AdminVmOverviewPage() {
           <Button onClick={() => setDeleteDialog({ open: false, vmId: null, vmName: '' })} disabled={!!actionLoading}>Hủy</Button>
           <Button onClick={handleDeleteVM} color="error" variant="contained" disabled={!!actionLoading}>
             {actionLoading === deleteDialog.vmId ? <><CircularProgress size={16} color="inherit" sx={{ mr: 1 }} /> Đang xóa...</> : 'Xóa'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={tailscaleDialog} onClose={() => !tailscaleLoading && setTailscaleDialog(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Batch Install Tailscale</DialogTitle>
-        <DialogContent>
-          <DialogContentText sx={{ mb: 2 }}>
-            Cài đặt Tailscale cho tất cả VM đang chạy chưa có Tailscale IP.
-          </DialogContentText>
-          <TextField
-            fullWidth
-            label="Tailscale Auth Key"
-            value={tailscaleAuthKey}
-            onChange={(e) => setTailscaleAuthKey(e.target.value)}
-            placeholder="tskey-auth-xxxxx"
-            type="password"
-            disabled={tailscaleLoading}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setTailscaleDialog(false)} disabled={tailscaleLoading}>Hủy</Button>
-          <Button onClick={handleBatchTailscale} variant="contained" disabled={!tailscaleAuthKey || tailscaleLoading}>
-            {tailscaleLoading ? 'Đang cài đặt...' : 'Cài đặt'}
           </Button>
         </DialogActions>
       </Dialog>
