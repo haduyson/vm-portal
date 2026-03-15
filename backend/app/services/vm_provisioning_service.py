@@ -93,11 +93,12 @@ class VMProvisioningService:
                 # Wait for Proxmox lock file to be released after clone
                 await self._wait_for_lock_release(vm.vmid, timeout=120)
 
-                # Step 3: Set hardware (cores, memory, network, cloud-init drive, VGA)
+                # Step 3: Set hardware (cores, memory, network, cloud-init drive, VGA, CPU)
                 await self.proxmox.set_vm_config(
                     vm.vmid,
                     cores=vm.cores,
                     memory=vm.memory_gb * 1024,  # Convert GB to MB for Proxmox
+                    cpu="host",  # Pass through host CPU features (AVX, AVX2 for Bun/Claude)
                     net0=net0,  # Network adapter with bridge/VLAN config
                     ide2=f"{vm.storage}:cloudinit",  # Cloud-init drive
                     ipconfig0=ipconfig0,  # DHCP or static IP for cloud-init

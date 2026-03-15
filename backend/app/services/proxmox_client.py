@@ -184,6 +184,7 @@ class ProxmoxService:
                 name=name,
                 cores=cores,
                 memory=memory_mb,
+                cpu="host",  # Pass through host CPU features (AVX, AVX2, etc.)
                 scsihw="virtio-scsi-pci",
                 scsi0=f"{storage}:{disk_gb}",
                 ide2=f"{iso_storage}:iso/{iso},media=cdrom",
