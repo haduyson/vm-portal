@@ -225,6 +225,8 @@ class CloudInitGenerator:
                 "list": [f"root:{password}"],
             },
             "ssh_pwauth": True,
+            # Persist SSH host keys across reboots - prevent regeneration
+            "ssh_deletekeys": False,
             "package_update": True,
             "packages": [
                 "openssh-server",
@@ -241,6 +243,8 @@ class CloudInitGenerator:
                 },
             ],
             "runcmd": [
+                # Persist SSH host keys - prevent regeneration on reboot
+                "echo 'ssh_deletekeys: false' > /etc/cloud/cloud.cfg.d/99-persist-ssh-keys.cfg",
                 # Ensure SSH is configured for password auth and root login
                 "mkdir -p /etc/ssh/sshd_config.d",
                 "echo 'PasswordAuthentication yes' > /etc/ssh/sshd_config.d/70-vpscloud.conf",
