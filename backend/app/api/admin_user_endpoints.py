@@ -373,12 +373,33 @@ async def delete_user(
             f"Deleted user: {user.username}, transferred {vm_count} VMs to {target_user.username}",
         )
     else:
-        # Delete VMs
+        # Delete VMs from Proxmox first, then from DB
+        vms_result = await session.execute(
+            select(VirtualMachine).where(VirtualMachine.user_id == user_id)
+        )
+        user_vms = vms_result.scalars().all()
+        for vm in user_vms:
+            try:
+                proxmox = await create_proxmox_service_for_server(
+                    vm.proxmox_server_id, session
+                ) if vm.proxmox_server_id else ProxmoxService()
+                try:
+                    pve_status = await proxmox.get_vm_status(vm.vmid)
+                    if pve_status.get("status") == "running":
+                        await proxmox.stop_vm(vm.vmid)
+                        import asyncio
+                        await asyncio.sleep(3)
+                except Exception:
+                    pass
+                await proxmox.delete_vm(vm.vmid)
+            except Exception as del_err:
+                print(f"Warning: Failed to delete VM {vm.vmid} from Proxmox: {del_err}")
+
         await session.execute(delete(VirtualMachine).where(VirtualMachine.user_id == user_id))
 
         await log_audit(
             session, admin.id, "delete_user", "user", user.id,
-            f"Deleted user: {user.username} with {vm_count} VMs",
+            f"Deleted user: {user.username} with {vm_count} VMs (Proxmox cleanup attempted)",
         )
 
     await session.delete(user)

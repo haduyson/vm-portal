@@ -292,10 +292,8 @@ async def forgot_password(
         can_notify = True
 
     if not can_notify:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Tài khoản chưa cấu hình phương thức thông báo. Vui lòng liên hệ quản trị viên.",
-        )
+        # Return same response to prevent user enumeration
+        return {"message": "Nếu tài khoản tồn tại và có phương thức liên lạc, mật khẩu mới sẽ được gửi."}
 
     new_password = generate_random_password()
     user.hashed_password = hash_password(new_password)

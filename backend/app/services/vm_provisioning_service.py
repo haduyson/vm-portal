@@ -369,6 +369,19 @@ class VMProvisioningService:
                 vm.status = "running"
                 vm.ip_address = ip_address
 
+                # Convert DHCP to static IP in Proxmox so IP persists across reboots
+                try:
+                    from app.services.system_settings_service import get_setting
+                    default_gw = await get_setting(session, "default_gateway") or "192.168.1.1"
+                    default_cidr = await get_setting(session, "default_subnet_cidr") or "24"
+                    await self.proxmox.set_vm_config(
+                        vmid,
+                        ipconfig0=f"ip={ip_address}/{default_cidr},gw={default_gw}",
+                    )
+                    print(f"VM {vmid}: converted to static IP {ip_address}/{default_cidr}")
+                except Exception as static_err:
+                    print(f"Warning: Failed to set static IP for VM {vmid}: {static_err}")
+
                 # Acquire IP ownership if on public network bridge
                 if vm.network_bridge_id:
                     try:

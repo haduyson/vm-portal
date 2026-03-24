@@ -6,7 +6,7 @@ from app.config import settings
 # Create async engine with optimized connection pool
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=True,
+    echo=False,
     future=True,
     pool_pre_ping=True,
     pool_size=10,          # Base pool size

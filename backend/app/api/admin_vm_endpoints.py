@@ -13,7 +13,8 @@ from app.models.user_model import User
 from app.models.virtual_machine_model import VirtualMachine
 from app.schemas.admin_schemas import AdminVMResponse, AdminStatsResponse
 from app.schemas.vm_schemas import TailscaleInstallRequest, TailscaleInstallResponse
-from app.services.proxmox_client import ProxmoxService, create_proxmox_service_for_vm
+from app.services.proxmox_client import ProxmoxService, create_proxmox_service_for_vm, create_proxmox_service_for_server
+from app.api.vm_endpoints import _get_proxmox_status_map
 from app.api.admin_shared_helpers import log_audit
 from sqlalchemy import func
 
@@ -39,6 +40,11 @@ async def list_all_vms(
         .order_by(VirtualMachine.created_at.desc())
     )
     rows = result.all()
+
+    # Batch-fetch realtime Proxmox status
+    all_vms = [vm for vm, _ in rows]
+    proxmox_status_map = await _get_proxmox_status_map(all_vms, session)
+
     return [
         AdminVMResponse(
             id=vm.id, user_id=vm.user_id, vmid=vm.vmid, name=vm.name,
@@ -48,6 +54,7 @@ async def list_all_vms(
             ssh_username=vm.ssh_username, ssh_password=vm.ssh_password,
             proxmox_node=vm.proxmox_node, storage=vm.storage,
             created_at=vm.created_at, updated_at=vm.updated_at, username=username,
+            proxmox_status=proxmox_status_map.get(vm.vmid),
         )
         for vm, username in rows
     ]
@@ -91,11 +98,15 @@ async def admin_start_vm(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy VM")
 
     vm, username = row
-    if vm.status == "running":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VM đang chạy")
-
     try:
         proxmox = await create_proxmox_service_for_vm(vm, session)
+        real_status = (await proxmox.get_vm_status(vm.vmid)).get("status", vm.status)
+        if vm.status != real_status:
+            vm.status = real_status
+            await session.commit()
+        if real_status == "running":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VM đang chạy")
+
         await proxmox.start_vm(vm.vmid)
         vm.status = "running"
         await session.commit()
@@ -111,9 +122,13 @@ async def admin_start_vm(
             ssh_username=vm.ssh_username, ssh_password=vm.ssh_password,
             proxmox_node=vm.proxmox_node, storage=vm.storage,
             created_at=vm.created_at, updated_at=vm.updated_at, username=username,
+            proxmox_status="running",
         )
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Lỗi khi khởi động VM: {str(e)}")
+        print(f"Error starting VM {vm.vmid}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Lỗi khi khởi động VM. Vui lòng thử lại sau.")
 
 
 @router.post("/vms/{vm_id}/stop", response_model=AdminVMResponse)
@@ -133,11 +148,15 @@ async def admin_stop_vm(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy VM")
 
     vm, username = row
-    if vm.status == "stopped":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VM đã dừng")
-
     try:
         proxmox = await create_proxmox_service_for_vm(vm, session)
+        real_status = (await proxmox.get_vm_status(vm.vmid)).get("status", vm.status)
+        if vm.status != real_status:
+            vm.status = real_status
+            await session.commit()
+        if real_status == "stopped":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VM đã dừng")
+
         await proxmox.stop_vm(vm.vmid)
         vm.status = "stopped"
         await session.commit()
@@ -153,9 +172,13 @@ async def admin_stop_vm(
             ssh_username=vm.ssh_username, ssh_password=vm.ssh_password,
             proxmox_node=vm.proxmox_node, storage=vm.storage,
             created_at=vm.created_at, updated_at=vm.updated_at, username=username,
+            proxmox_status="stopped",
         )
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Lỗi khi dừng VM: {str(e)}")
+        print(f"Error stopping VM {vm.vmid}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Lỗi khi dừng VM. Vui lòng thử lại sau.")
 
 
 @router.delete("/vms/{vm_id}", status_code=status.HTTP_204_NO_CONTENT)

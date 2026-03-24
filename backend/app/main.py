@@ -56,6 +56,46 @@ async def create_default_admin():
             print(f"Admin user '{settings.DEFAULT_ADMIN_USERNAME}' already exists")
 
 
+async def recover_stuck_vms():
+    """Recover VMs stuck in creating/installing status after restart."""
+    import asyncio
+    from app.services.proxmox_client import create_proxmox_service_for_vm
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(VirtualMachine).where(
+                VirtualMachine.status.in_(["creating", "installing"])
+            )
+        )
+        stuck_vms = result.scalars().all()
+
+        if not stuck_vms:
+            return
+
+        print(f"Found {len(stuck_vms)} stuck VMs, checking Proxmox status...")
+        for vm in stuck_vms:
+            try:
+                proxmox = await create_proxmox_service_for_vm(vm, session)
+                pve_status = await proxmox.get_vm_status(vm.vmid)
+                real_status = pve_status.get("status")
+
+                if real_status == "running":
+                    vm.status = "running"
+                    print(f"  VM {vm.vmid} ({vm.name}): recovered to running")
+                elif real_status == "stopped":
+                    vm.status = "stopped"
+                    print(f"  VM {vm.vmid} ({vm.name}): recovered to stopped")
+                else:
+                    vm.status = "error"
+                    print(f"  VM {vm.vmid} ({vm.name}): marked as error (proxmox: {real_status})")
+            except Exception as e:
+                vm.status = "error"
+                print(f"  VM {vm.vmid} ({vm.name}): marked as error ({e})")
+
+        await session.commit()
+        print(f"Recovered {len(stuck_vms)} stuck VMs")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
@@ -65,6 +105,9 @@ async def lifespan(app: FastAPI):
 
     print("Checking default admin user...")
     await create_default_admin()
+
+    print("Recovering stuck VMs...")
+    await recover_stuck_vms()
 
     yield
 

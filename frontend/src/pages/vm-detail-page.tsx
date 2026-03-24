@@ -53,6 +53,7 @@ interface VMDetail {
   vmid: number;
   name: string;
   status: string;
+  proxmox_status: string | null;
   cores: number;
   memory_gb: number;
   disk_gb: number;
@@ -149,8 +150,11 @@ export default function VMDetailPage() {
     }
   };
 
+  // Use Proxmox realtime status for action logic, fallback to DB status
+  const effectiveStatus = vm?.proxmox_status || vm?.status || '';
+
   const fetchVMResources = async () => {
-    if (!vm || vm.status !== 'running') return;
+    if (!vm || effectiveStatus !== 'running') return;
     try {
       const response = await apiClient.get(`/vms/${id}/resources`);
       setResources(response.data);
@@ -170,12 +174,12 @@ export default function VMDetailPage() {
   }, [id]);
 
   useEffect(() => {
-    if (vm && vm.status === 'running') {
+    if (vm && effectiveStatus === 'running') {
       fetchVMResources();
       const resourceInterval = setInterval(() => { fetchVMResources(); }, 15000);
       return () => clearInterval(resourceInterval);
     }
-  }, [vm?.status]);
+  }, [effectiveStatus]);
 
   const handleVMAction = async (action: 'start' | 'stop' | 'restart') => {
     setActionLoading(true);
@@ -366,7 +370,7 @@ export default function VMDetailPage() {
         <CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h5">{vm.name}</Typography>
-            <VMStatusChip status={vm.status} />
+            <VMStatusChip status={vm.status} proxmoxStatus={vm.proxmox_status} />
           </Box>
           <Typography variant="body2" color="text.secondary">VMID: {vm.vmid}</Typography>
         </CardContent>
@@ -494,7 +498,7 @@ export default function VMDetailPage() {
             <Paper sx={{ p: 3 }}>
               <Typography variant="h6" gutterBottom>Đổi mật khẩu root</Typography>
               <Divider sx={{ mb: 2 }} />
-              {vm.status !== 'running' ? (
+              {effectiveStatus !== 'running' ? (
                 <Alert severity="info">VM phải đang chạy để đổi mật khẩu.</Alert>
               ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -551,7 +555,7 @@ export default function VMDetailPage() {
       {/* Tab 1: Resources */}
       {tabIndex === 1 && (
         <Grid container spacing={3}>
-          {vm.status === 'running' && resources ? (
+          {effectiveStatus === 'running' && resources ? (
             <>
               <Grid item xs={12}>
                 <Paper sx={{ p: 3 }}>
@@ -616,14 +620,14 @@ export default function VMDetailPage() {
 
       {/* Tab 2: Network & Firewall */}
       {tabIndex === 2 && (
-        <VmNetworkPanel vmId={vm.id} vmStatus={vm.status} />
+        <VmNetworkPanel vmId={vm.id} vmStatus={effectiveStatus} />
       )}
 
       {/* Tab 3: Console */}
       {tabIndex === 3 && (
         <VMConsoleViewer
           vmId={vm.id}
-          vmStatus={vm.status}
+          vmStatus={effectiveStatus}
           proxmoxNode={vm.proxmox_node}
           onOpenSSHConsole={() => setSshConsoleOpen(true)}
           tailscaleIp={vm.tailscale_ip}
@@ -640,28 +644,28 @@ export default function VMDetailPage() {
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
             <Button
               variant="contained" color="success" startIcon={<PlayArrowIcon />}
-              disabled={vm.status !== 'stopped' || actionLoading}
+              disabled={effectiveStatus !== 'stopped' || actionLoading}
               onClick={() => handleVMAction('start')}
             >
               Khởi động
             </Button>
             <Button
               variant="contained" color="error" startIcon={<StopIcon />}
-              disabled={vm.status !== 'running' || actionLoading}
+              disabled={effectiveStatus !== 'running' || actionLoading}
               onClick={() => handleVMAction('stop')}
             >
               Dừng
             </Button>
             <Button
               variant="contained" color="primary" startIcon={<RefreshIcon />}
-              disabled={vm.status !== 'running' || actionLoading}
+              disabled={effectiveStatus !== 'running' || actionLoading}
               onClick={() => handleVMAction('restart')}
             >
               Khởi động lại
             </Button>
             <Button
               variant="outlined" color="info" startIcon={<TerminalIcon />}
-              disabled={vm.status !== 'running'}
+              disabled={effectiveStatus !== 'running'}
               onClick={() => setSshConsoleOpen(true)}
             >
               SSH Console
@@ -671,7 +675,7 @@ export default function VMDetailPage() {
                 variant="outlined"
                 color="secondary"
                 startIcon={<VpnKeyIcon />}
-                disabled={vm.status !== 'running'}
+                disabled={effectiveStatus !== 'running'}
                 onClick={() => copyToClipboard(`ssh ${vm.ssh_username || 'root'}@${vm.tailscale_ip}`, 'Tailscale SSH command')}
               >
                 Tailscale SSH
@@ -731,7 +735,7 @@ export default function VMDetailPage() {
           <Typography variant="h6" gutterBottom>Thay đổi cấu hình</Typography>
           <Divider sx={{ mb: 2 }} />
 
-          {vm.status !== 'stopped' ? (
+          {effectiveStatus !== 'stopped' ? (
             <Alert severity="warning">VM phải ở trạng thái đã dừng để thay đổi cấu hình. Vui lòng tắt VM trước.</Alert>
           ) : (
             <>

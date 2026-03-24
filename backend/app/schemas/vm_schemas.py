@@ -57,6 +57,7 @@ class VMResponse(BaseModel):
     disk_gb: int
     os_type: str
     status: str
+    proxmox_status: Optional[str] = None  # Realtime status from Proxmox (running/stopped/paused)
     ip_address: Optional[str]
     tailscale_ip: Optional[str]
     web_domain: Optional[str]

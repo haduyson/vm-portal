@@ -51,6 +51,7 @@ interface VM {
   id: number;
   name: string;
   status: string;
+  proxmox_status: string | null;
   cores: number;
   memory_gb: number;
   disk_gb: number;
@@ -187,7 +188,7 @@ export default function VMListPage() {
           <IconButton
             color="success"
             size="small"
-            disabled={vm.status !== 'stopped' || actionLoading === vm.id}
+            disabled={(vm.proxmox_status || vm.status) !== 'stopped' || actionLoading === vm.id}
             onClick={() => handleVMAction(vm.id, 'start')}
           >
             <PlayArrowIcon />
@@ -199,7 +200,7 @@ export default function VMListPage() {
           <IconButton
             color="error"
             size="small"
-            disabled={vm.status !== 'running' || actionLoading === vm.id}
+            disabled={(vm.proxmox_status || vm.status) !== 'running' || actionLoading === vm.id}
             onClick={() => handleVMAction(vm.id, 'stop')}
           >
             <StopIcon />
@@ -211,7 +212,7 @@ export default function VMListPage() {
           <IconButton
             color="primary"
             size="small"
-            disabled={vm.status !== 'running' || actionLoading === vm.id}
+            disabled={(vm.proxmox_status || vm.status) !== 'running' || actionLoading === vm.id}
             onClick={() => handleVMAction(vm.id, 'restart')}
           >
             <RefreshIcon />
@@ -261,7 +262,7 @@ export default function VMListPage() {
                   >
                     {vm.name}
                   </Link>
-                  <VMStatusChip status={vm.status} />
+                  <VMStatusChip status={vm.status} proxmoxStatus={vm.proxmox_status} />
                 </Box>
                 <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: 'wrap', gap: 0.5 }}>
                   <Chip label={`${vm.cores} CPU`} size="small" variant="outlined" />
@@ -328,7 +329,7 @@ export default function VMListPage() {
                       </Link>
                     </TableCell>
                     <TableCell>
-                      <VMStatusChip status={vm.status} />
+                      <VMStatusChip status={vm.status} proxmoxStatus={vm.proxmox_status} />
                     </TableCell>
                     <TableCell align="right">{vm.cores} cores</TableCell>
                     <TableCell align="right">{vm.memory_gb} GB</TableCell>

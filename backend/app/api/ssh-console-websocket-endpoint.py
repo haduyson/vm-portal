@@ -7,7 +7,8 @@ from jose import jwt, JWTError
 from app.database import get_session
 from app.models.virtual_machine_model import VirtualMachine
 from app.models.user_model import User
-from app.config import settings
+from app.core.security import _get_verify_key, _get_algorithm
+from app.services.proxmox_client import create_proxmox_service_for_vm
 from sqlalchemy import select
 
 router = APIRouter(tags=["ssh-websocket"])
@@ -16,7 +17,7 @@ router = APIRouter(tags=["ssh-websocket"])
 async def verify_websocket_token(token: str, session: AsyncSession) -> User:
     """Verify JWT token from WebSocket query params and return user."""
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, _get_verify_key(), algorithms=[_get_algorithm()])
         username: str = payload.get("sub")
         token_type: str = payload.get("type", "access")
         if username is None or token_type == "partial_2fa":
@@ -25,7 +26,13 @@ async def verify_websocket_token(token: str, session: AsyncSession) -> User:
         return None
 
     result = await session.execute(select(User).where(User.username == username))
-    return result.scalar_one_or_none()
+    user = result.scalar_one_or_none()
+
+    # Block suspended users from WebSocket access
+    if user and user.is_suspended:
+        return None
+
+    return user
 
 
 @router.websocket("/ws/vm/{vm_id}/console")
@@ -81,8 +88,15 @@ async def ssh_console_websocket(
             await websocket.close()
             return
 
-        # Kiểm tra VM phải đang chạy
-        if vm.status != "running":
+        # Check realtime Proxmox status (not stale DB status)
+        try:
+            proxmox = await create_proxmox_service_for_vm(vm, session)
+            pve_status = await proxmox.get_vm_status(vm.vmid)
+            real_status = pve_status.get("status", "unknown")
+        except Exception:
+            real_status = vm.status  # Fallback to DB if Proxmox unreachable
+
+        if real_status != "running":
             await websocket.send_text(json.dumps({
                 "type": "error",
                 "message": "VM phải đang chạy để kết nối SSH"

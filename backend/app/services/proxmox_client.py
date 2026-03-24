@@ -196,6 +196,18 @@ class ProxmoxService:
 
         return await asyncio.to_thread(_create_vm)
 
+    async def get_all_vm_statuses(self) -> Dict[int, str]:
+        """Get status of all VMs on this node in a single API call.
+        Returns dict mapping vmid -> proxmox status (running/stopped/paused/etc)."""
+        def _get_all():
+            try:
+                vms = self.proxmox.nodes(self.node).qemu.get()
+                return {int(vm["vmid"]): vm.get("status", "unknown") for vm in vms}
+            except Exception:
+                return {}
+
+        return await asyncio.to_thread(_get_all)
+
     async def start_vm(self, vmid: int) -> Dict:
         """Start a VM."""
         def _start_vm():

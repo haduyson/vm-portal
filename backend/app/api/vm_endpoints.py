@@ -43,6 +43,9 @@ router = APIRouter(prefix="/vms", tags=["virtual-machines"])
 proxmox_servers_public_router = APIRouter(tags=["proxmox-servers-public"])
 os_templates_public_router = APIRouter(tags=["os-templates-public"])
 
+# Lock to prevent VMID race condition on concurrent VM creation
+_vmid_lock = asyncio.Lock()
+
 
 @router.post("", response_model=VMResponse, status_code=status.HTTP_201_CREATED)
 async def create_vm(
@@ -270,7 +273,9 @@ async def create_vm(
                     detail="Server này chưa cấu hình template Cloud-Init",
                 )
 
-        vmid = await provisioning_service.proxmox.get_next_vmid()
+        # Lock to prevent VMID race on concurrent creation
+        async with _vmid_lock:
+            vmid = await provisioning_service.proxmox.get_next_vmid()
 
         # Resolve network bridge
         bridge = None
@@ -409,12 +414,42 @@ async def create_vm(
         )
 
 
+async def _get_proxmox_status_map(vms, session: AsyncSession) -> dict:
+    """Batch-fetch realtime VM statuses from Proxmox, grouped by server."""
+    # Group VMs by proxmox_server_id
+    server_vmids: dict = {}
+    for vm in vms:
+        sid = vm.proxmox_server_id
+        server_vmids.setdefault(sid, []).append(vm.vmid)
+
+    # Fetch status from each server in parallel
+    status_map = {}
+
+    async def _fetch_for_server(server_id, vmids):
+        try:
+            if server_id:
+                proxmox = await create_proxmox_service_for_server(server_id, session)
+            else:
+                proxmox = ProxmoxService()
+            all_statuses = await proxmox.get_all_vm_statuses()
+            for vmid in vmids:
+                status_map[vmid] = all_statuses.get(vmid, "unknown")
+        except Exception:
+            for vmid in vmids:
+                status_map[vmid] = "unknown"
+
+    await asyncio.gather(*[
+        _fetch_for_server(sid, vmids) for sid, vmids in server_vmids.items()
+    ])
+    return status_map
+
+
 @router.get("", response_model=VMListResponse)
 async def list_vms(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Get list of VMs for the current user."""
+    """Get list of VMs for the current user with realtime Proxmox status."""
     result = await session.execute(
         select(VirtualMachine)
         .where(VirtualMachine.user_id == current_user.id)
@@ -422,9 +457,17 @@ async def list_vms(
     )
     vms = result.scalars().all()
 
+    # Fetch realtime status from Proxmox (grouped by server for efficiency)
+    vm_responses = []
+    proxmox_status_map = await _get_proxmox_status_map(vms, session)
+    for vm in vms:
+        vm_data = VMResponse.model_validate(vm)
+        vm_data.proxmox_status = proxmox_status_map.get(vm.vmid)
+        vm_responses.append(vm_data)
+
     return VMListResponse(
-        total=len(vms),
-        vms=list(vms),
+        total=len(vm_responses),
+        vms=vm_responses,
     )
 
 
@@ -452,7 +495,11 @@ async def get_vm(
             detail="Bạn không có quyền truy cập VM này",
         )
 
-    return vm
+    # Enrich with realtime Proxmox status
+    vm_data = VMResponse.model_validate(vm)
+    proxmox_status_map = await _get_proxmox_status_map([vm], session)
+    vm_data.proxmox_status = proxmox_status_map.get(vm.vmid)
+    return vm_data
 
 
 @router.post("/{vm_id}/start", response_model=VMResponse)
@@ -479,23 +526,30 @@ async def start_vm(
             detail="Bạn không có quyền điều khiển VM này",
         )
 
-    if vm.status == "running":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="VM đang chạy",
-        )
-
     try:
         proxmox = await create_proxmox_service_for_vm(vm, session)
+        # Check realtime Proxmox status instead of stale DB
+        real_status = (await proxmox.get_vm_status(vm.vmid)).get("status", vm.status)
+        if vm.status != real_status:
+            vm.status = real_status  # Self-heal DB drift
+            await session.commit()
+        if real_status == "running":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VM đang chạy")
+
         await proxmox.start_vm(vm.vmid)
         vm.status = "running"
         await session.commit()
         await session.refresh(vm)
-        return vm
+        vm_data = VMResponse.model_validate(vm)
+        vm_data.proxmox_status = "running"
+        return vm_data
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Error starting VM {vm.vmid}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Lỗi khi khởi động VM: {str(e)}",
+            detail="Lỗi khi khởi động VM. Vui lòng thử lại sau.",
         )
 
 
@@ -523,23 +577,30 @@ async def stop_vm(
             detail="Bạn không có quyền điều khiển VM này",
         )
 
-    if vm.status == "stopped":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="VM đã dừng",
-        )
-
     try:
         proxmox = await create_proxmox_service_for_vm(vm, session)
+        # Check realtime Proxmox status instead of stale DB
+        real_status = (await proxmox.get_vm_status(vm.vmid)).get("status", vm.status)
+        if vm.status != real_status:
+            vm.status = real_status
+            await session.commit()
+        if real_status == "stopped":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VM đã dừng")
+
         await proxmox.stop_vm(vm.vmid)
         vm.status = "stopped"
         await session.commit()
         await session.refresh(vm)
-        return vm
+        vm_data = VMResponse.model_validate(vm)
+        vm_data.proxmox_status = "stopped"
+        return vm_data
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Error stopping VM {vm.vmid}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Lỗi khi dừng VM: {str(e)}",
+            detail="Lỗi khi dừng VM. Vui lòng thử lại sau.",
         )
 
 
@@ -567,25 +628,32 @@ async def restart_vm(
             detail="Bạn không có quyền điều khiển VM này",
         )
 
-    if vm.status != "running":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="VM phải đang chạy để khởi động lại",
-        )
-
     try:
         proxmox = await create_proxmox_service_for_vm(vm, session)
+        # Check realtime Proxmox status instead of stale DB
+        real_status = (await proxmox.get_vm_status(vm.vmid)).get("status", vm.status)
+        if vm.status != real_status:
+            vm.status = real_status
+            await session.commit()
+        if real_status != "running":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="VM phải đang chạy để khởi động lại")
+
         await proxmox.stop_vm(vm.vmid)
         await asyncio.sleep(2)
         await proxmox.start_vm(vm.vmid)
         vm.status = "running"
         await session.commit()
         await session.refresh(vm)
-        return vm
+        vm_data = VMResponse.model_validate(vm)
+        vm_data.proxmox_status = "running"
+        return vm_data
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Error restarting VM {vm.vmid}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Lỗi khi khởi động lại VM: {str(e)}",
+            detail="Lỗi khi khởi động lại VM. Vui lòng thử lại sau.",
         )
 
 
@@ -613,20 +681,24 @@ async def get_vm_resources(
             detail="Bạn không có quyền truy cập VM này",
         )
 
-    if vm.status != "running":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="VM phải đang chạy để xem tài nguyên",
-        )
-
     try:
         proxmox = await create_proxmox_service_for_vm(vm, session)
+        # Check realtime status for resource viewing
+        real_status = (await proxmox.get_vm_status(vm.vmid)).get("status", vm.status)
+        if real_status != "running":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="VM phải đang chạy để xem tài nguyên",
+            )
         resources = await proxmox.get_vm_resources(vm.vmid)
         return VMResourceResponse(**resources)
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"Error fetching resources for VM {vm.vmid}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Lỗi khi lấy thông tin tài nguyên: {str(e)}",
+            detail="Lỗi khi lấy thông tin tài nguyên. Vui lòng thử lại sau.",
         )
 
 

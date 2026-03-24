@@ -55,6 +55,7 @@ interface AdminVM {
   name: string;
   username: string;
   status: string;
+  proxmox_status: string | null;
   cores: number;
   memory_gb: number;
   disk_gb: number;
@@ -145,7 +146,7 @@ export default function AdminVmOverviewPage() {
       vm.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       vm.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (vm.ip_address && vm.ip_address.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesStatus = statusFilter === 'all' || vm.status === statusFilter;
+    const matchesStatus = statusFilter === 'all' || (vm.proxmox_status || vm.status) === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -387,7 +388,7 @@ export default function AdminVmOverviewPage() {
                   <TableCell>{vm.name}</TableCell>
                   <TableCell sx={{ display: { xs: 'none', sm: 'table-cell' } }}>{vm.username}</TableCell>
                   <TableCell>
-                    <VMStatusChip status={vm.status} />
+                    <VMStatusChip status={vm.status} proxmoxStatus={vm.proxmox_status} />
                   </TableCell>
                   <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>{vm.cores} cores</TableCell>
                   <TableCell align="right" sx={{ display: { xs: 'none', md: 'table-cell' } }}>
@@ -405,7 +406,7 @@ export default function AdminVmOverviewPage() {
                           <IconButton
                             color="success"
                             size="small"
-                            disabled={vm.status !== 'stopped' || actionLoading === vm.id}
+                            disabled={(vm.proxmox_status || vm.status) !== 'stopped' || actionLoading === vm.id}
                             onClick={() => handleVMAction(vm.id, 'start')}
                           >
                             <PlayArrowIcon />
@@ -417,7 +418,7 @@ export default function AdminVmOverviewPage() {
                           <IconButton
                             color="error"
                             size="small"
-                            disabled={vm.status !== 'running' || actionLoading === vm.id}
+                            disabled={(vm.proxmox_status || vm.status) !== 'running' || actionLoading === vm.id}
                             onClick={() => handleVMAction(vm.id, 'stop')}
                           >
                             <StopIcon />
