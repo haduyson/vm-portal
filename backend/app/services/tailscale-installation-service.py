@@ -67,6 +67,31 @@ class TailscaleInstallationService:
                     "success": False,
                     "error": f"Authentication failed: {result.get('stderr', 'Unknown error')}",
                 }
+
+            # Create systemd service for auto re-auth on boot
+            autoauth_cmd = (
+                f'cat > /etc/systemd/system/tailscale-autoauth.service << UNIT\n'
+                f'[Unit]\n'
+                f'Description=Auto-authenticate Tailscale on boot\n'
+                f'After=tailscaled.service network-online.target\n'
+                f'Wants=tailscaled.service network-online.target\n'
+                f'[Service]\n'
+                f'Type=oneshot\n'
+                f'ExecStartPre=/bin/sleep 5\n'
+                f'ExecStart=/usr/bin/tailscale up --authkey={auth_key} --accept-routes --ssh --reset\n'
+                f'RemainAfterExit=yes\n'
+                f'[Install]\n'
+                f'WantedBy=multi-user.target\n'
+                f'UNIT\n'
+                f'systemctl daemon-reload && systemctl enable tailscale-autoauth.service'
+            )
+            try:
+                await proxmox_service.exec_command_wait(
+                    vmid, ["/bin/sh", "-c", autoauth_cmd], timeout=15
+                )
+            except Exception:
+                pass  # Non-critical, Tailscale is already authenticated
+
             return {"success": True, "output": result.get("stdout", "")}
         except Exception as e:
             return {"success": False, "error": str(e)}
